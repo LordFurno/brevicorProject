@@ -1,3 +1,57 @@
+# Brevicor Telemedicine
+
+## What this is
+A browser-based telemedicine module for Ontario clinics. Physicians start video
+or phone consultations from scheduled appointments; patients join via a secure
+link (no account, no app). Consultations are transcribed and filed to the
+patient's chart.
+
+The core deliverable is the **FHIR R4 EHR Integration Layer**: one standard
+FHIR API that works with any clinic's EHR (native FHIR, proprietary adapter,
+or mock). The telemedicine module is the working demo that proves it.
+
+Full spec: `docs/spec.md`. Read the relevant section before building a feature.
+
+## Hard rules
+- The telemedicine module talks to clinical data ONLY through the FHIR R4 API
+  (`/api/fhir/R4`). Never call an EHR or its database directly.
+- All EHR-specific logic lives in `src/fhir/providers/` (mock, native, adapters).
+  Each provider implements the same `FhirProvider` interface.
+- Video/phone and transcription providers sit behind interfaces
+  (`CommsProvider`, `TranscriptionProvider`), selected in `config/providers.ts`.
+  No Twilio imports outside `src/comms/twilio/`.
+- No patient-identifying info in logs, emails, SMS, or realtime messages.
+- Every query is scoped by `tenant_id` (clinic). No cross-tenant access.
+- Errors from the FHIR API are returned as FHIR `OperationOutcome` resources.
+- Ending a call never marks the FHIR Encounter as completed.
+- Transcripts are "unverified" until a physician reviews them.
+- Raw audio is deleted after transcription.
+
+## Stack
+- Next.js + React + TypeScript, hosted on Vercel (region: yul1, Montréal)
+- Supabase (ca-central-1): Postgres, Auth (physicians), Storage, Realtime
+- Twilio Video + Voice (swappable)
+- Transcription: AWS Transcribe Medical, ca-central-1 (swappable)
+- FHIR types: `@types/fhir`
+
+## Data residency
+All stored data (database, files, transcripts, logs) must stay in Canada.
+Don't add a new service that stores data without checking its region.
+
+## Build order
+1. Mock FHIR provider + integration layer (seed/reset scripts, CapabilityStatement)
+2. Session backend (sessions, invitations, patient verification)
+3. Video consultation + waiting room
+4. Phone consultation
+5. Transcription pipeline
+
+## Commands
+<!-- fill in once the project is scaffolded -->
+- Dev: TBD
+- Test: TBD
+- Seed mock data: TBD
+- Reset mock data: TBD
+
 # FHIR Gateway (EHR Integration Layer)
 
 A standalone HL7 FHIR R4 REST API at `/api/fhir/R4`. Callers see one consistent
