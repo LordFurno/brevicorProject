@@ -12,6 +12,7 @@ import { VideoStage } from '@/components/video/video-stage';
 import { CLINIC_TZ_LABEL, formatDateLong, formatTime } from '@/lib/time';
 import type { PatientStatus } from '@/lib/visits/types';
 import { Lobby } from './lobby';
+import { PatientPhotoUpload } from '@/components/cloudinary/patient-photo-upload';
 
 export interface DoctorInfo {
   name: string;
@@ -33,14 +34,17 @@ type Phase = 'verify' | 'lobby' | 'call' | 'left' | 'ended' | 'closed';
 export function VisitFlow({ token, doctor, clinicName, start, initiallyVerified }: Props) {
   const [phase, setPhase] = useState<Phase>(initiallyVerified ? 'lobby' : 'verify');
   const [status, setStatus] = useState<PatientStatus | null>(null);
+  const [checkInError, setCheckInError] = useState('');
   const media = useLocalMedia(phase === 'lobby' || phase === 'call' || phase === 'left');
 
   const poll = useCallback(async () => {
     const res = await fetch(`/api/visit/${encodeURIComponent(token)}/status`, { method: 'POST', cache: 'no-store' }).catch(() => null);
-    if (!res) return;
+    if (!res) { setCheckInError('Unable to report your arrival. Check your connection and retry.'); return; }
     if (res.status === 401) return setPhase('verify');
-    if (!res.ok) return;
-    const s = (await res.json()) as PatientStatus;
+    if (!res.ok) { setCheckInError('Your arrival could not be confirmed. Please retry.'); return; }
+    const s = await res.json().catch(() => null) as PatientStatus | null;
+    if (!s?.phase) { setCheckInError('Your arrival could not be confirmed. Please retry.'); return; }
+    setCheckInError('');
     setStatus(s);
     setPhase((prev) => {
       if (s.phase === 'ended') return 'ended';
@@ -65,6 +69,9 @@ export function VisitFlow({ token, doctor, clinicName, start, initiallyVerified 
 
   return (
     <Lobby
+      checkInError={checkInError}
+      onRetryCheckIn={() => void poll()}
+      photoUpload={(cameraRef, cameraOn) => <PatientPhotoUpload token={token} cameraRef={cameraRef} cameraOn={cameraOn} />}
       doctor={doctor}
       clinicName={clinicName}
       start={start}
@@ -167,7 +174,7 @@ function PatientCall({ token, doctor, media, onLeave }: { token: string; doctor:
   const call = useCall(creds, media.stream);
 
   return (
-    <div className="h-dvh">
+    <div className="relative h-dvh">
       <VideoStage
         remote={call.remote}
         local={media.stream}
@@ -192,6 +199,7 @@ function PatientCall({ token, doctor, media, onLeave }: { token: string; doctor:
           </>
         }
       />
+      <div className="absolute right-4 bottom-24 z-20 w-64 max-w-[calc(100vw-2rem)]"><PatientPhotoUpload token={token} /></div>
     </div>
   );
 }

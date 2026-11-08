@@ -44,11 +44,12 @@ export function LoginForm({
   return (
     <>
       <form onSubmit={signIn} className="mt-8 space-y-4">
+        {/* Browser autofill diagnostics add attributes before hydration. Scope the escape hatch to these two inputs. */}
         <Field label="Work email" htmlFor="email">
-          <Input id="email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@clinic.ca" />
+          <Input suppressHydrationWarning id="email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@clinic.ca" />
         </Field>
         <Field label="Password" htmlFor="password">
-          <Input id="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input suppressHydrationWarning id="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         {unavailable && (
           <Alert tone="amber">

@@ -1,29 +1,32 @@
 'use client';
 
 import clsx from 'clsx';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 export function VideoTile({
   stream,
+  videoRef,
   muted,
   mirror,
   fit = 'cover',
   className,
 }: {
+  videoRef?: RefObject<HTMLVideoElement | null>;
   stream: MediaStream | null;
   muted?: boolean;
   mirror?: boolean;
   fit?: 'cover' | 'contain';
   className?: string;
 }) {
-  const ref = useRef<HTMLVideoElement>(null);
+  const fallbackRef = useRef<HTMLVideoElement>(null);
+  const ref = videoRef ?? fallbackRef;
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (el.srcObject !== stream) el.srcObject = stream;
     if (stream) el.play().catch(() => undefined);
-  }, [stream]);
+  }, [stream, ref]);
 
   return (
     <video
