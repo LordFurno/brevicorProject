@@ -2,10 +2,9 @@ import { authorizedPatient } from '@/lib/auth/patient';
 import { addPhoto, getPhotos } from '@/media/visit-photos';
 import { uploadPhoto } from '@/media/upload-photo';
 import { photosConfigured } from '@/media/cloudinary';
-import { json, jsonError } from '@/lib/http';
+import { json, jsonError, wrongOrigin } from '@/lib/http';
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
-  if (req.headers.has('origin') && req.headers.get('origin') !== new URL(req.url).origin)
-    return jsonError(403, 'Invalid request origin.');
+  if (wrongOrigin(req)) return jsonError(403, 'Invalid request origin.');
   const visit = await authorizedPatient((await params).token, true);
   if (!visit) return jsonError(401, 'Please verify your visit first.');
   if (['completed', 'cancelled'].includes(visit.status))

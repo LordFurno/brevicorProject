@@ -3,15 +3,12 @@ import { getVisitStore } from '@/lib/visits/store';
 import { getPhotos, addPhoto, getHistory, updatePhoto } from '@/media/visit-photos';
 import { uploadPhoto } from '@/media/upload-photo';
 import { photosConfigured } from '@/media/cloudinary';
-import { json, jsonError } from '@/lib/http';
+import { json, jsonError, wrongOrigin } from '@/lib/http';
 async function authorized(id: string) {
   const doctor = await getDoctor();
   if (!doctor) return jsonError(401, 'Unauthorized');
   const visit = await getVisitStore().get(doctor.clinicId, id);
   return visit && ownsVisit(doctor, visit) ? visit : jsonError(404, 'Visit not found');
-}
-function wrongOrigin(req: Request) {
-  return req.headers.has('origin') && req.headers.get('origin') !== new URL(req.url).origin;
 }
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const visit = await authorized((await params).id);

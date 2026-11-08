@@ -1,9 +1,8 @@
 import { getDoctor, CLINIC_COOKIE } from '@/lib/auth/doctor';
-import { json, jsonError, readJson } from '@/lib/http';
+import { json, jsonError, readJson, wrongOrigin } from '@/lib/http';
 import { cookieOptions } from '@/lib/auth/signing';
 export async function POST(req: Request) {
-  if (req.headers.get('origin') && req.headers.get('origin') !== new URL(req.url).origin)
-    return jsonError(403, 'Invalid request origin');
+  if (wrongOrigin(req)) return jsonError(403, 'Invalid request origin');
   const doctor = await getDoctor();
   if (!doctor) return jsonError(401, 'Unauthorized');
   const body = (await readJson(req)) as { clinicId?: unknown } | null;

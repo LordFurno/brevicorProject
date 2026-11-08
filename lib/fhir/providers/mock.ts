@@ -24,10 +24,11 @@ export const FHIR_DOCSTORE_TABLE = 'fhir_docstore';
  * Widen here if the app needs more.
  */
 export const MOCK_INTERACTIONS: Record<InScopeType, Interaction[]> = {
-  Patient: ['read', 'search-type'],
+  // Patient/Appointment create: self-service booking into the demo EHR.
+  Patient: ['read', 'search-type', 'create'],
   Practitioner: ['read', 'search-type'],
   Organization: ['read', 'search-type'],
-  Appointment: ['read', 'search-type'],
+  Appointment: ['read', 'search-type', 'create'],
   Encounter: ['read', 'search-type', 'create', 'update'],
   DocumentReference: ['read', 'search-type', 'create'],
   Condition: ['read', 'search-type'],

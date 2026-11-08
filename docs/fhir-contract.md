@@ -23,10 +23,10 @@ Everything here is enforced by `tests/conformance/provider-contract.ts`.
 
 | Resource | Always | Depends on the clinic's EHR (check `/metadata`) |
 |---|---|---|
-| Patient | read, search | |
+| Patient | read, search | create |
 | Practitioner | read, search | |
 | Organization | read, search | |
-| Appointment | read, search | |
+| Appointment | read, search | create |
 | Encounter | read, search, **create** (native or fallback) | update |
 | DocumentReference | read, search, **create** (native or fallback) | |
 | Condition | read, search | |
@@ -35,7 +35,8 @@ Everything here is enforced by `tests/conformance/provider-contract.ts`.
 | Observation | read, search | |
 
 The mock clinic (`demo-mock`) stores Encounter and DocumentReference creates
-in its EHR and supports Encounter update. `hapi-public` and `demo-clinicsoft`
+in its EHR, supports Encounter update, and accepts Patient and Appointment
+creates (used by the demo self-service booking, `EHR_BOOKING_ENABLED`). `hapi-public` and `demo-clinicsoft`
 (a non-FHIR EMR behind the adapter) are read-only EHRs, so their creates go to
 the Brevicor docstore (see "Writes the EHR can't take" below). At
 `demo-clinicsoft`, Organization supports read but not search.

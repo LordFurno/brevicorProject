@@ -1,6 +1,6 @@
 import { getDoctor, ownsVisit } from '@/lib/auth/doctor';
 import { createPhotoDocument } from '@/lib/clinical/write';
-import { json, jsonError } from '@/lib/http';
+import { json, jsonError, wrongOrigin } from '@/lib/http';
 import { linkEncounter, writeErrorCode } from '@/lib/visits/service';
 import { getVisitStore } from '@/lib/visits/store';
 import { chartImageUrl } from '@/media/photo-urls';
@@ -10,8 +10,7 @@ import { getPhotos, linkPhotoDocument } from '@/media/visit-photos';
 // photo (with its notes and diagnosis) to the patient's EHR chart as a
 // DocumentReference, through the FHIR gateway with the physician's token.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string; photoId: string }> }) {
-  if (req.headers.has('origin') && req.headers.get('origin') !== new URL(req.url).origin)
-    return jsonError(403, 'Invalid request origin.');
+  if (wrongOrigin(req)) return jsonError(403, 'Invalid request origin.');
   const { id, photoId } = await params;
   const doctor = await getDoctor();
   if (!doctor) return jsonError(401, 'Unauthorized');

@@ -103,13 +103,19 @@ type Result<T> = { ok: true; value: T } | { ok: false; status: number; error: st
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
-export async function createBooking(body: unknown, now = Date.now()): Promise<Result<Visit>> {
+export interface BookingInput {
+  name: string;
+  dateOfBirth: string;
+  email: string;
+  phone: string; // E.164, or '' when not given
+  healthCard: string;
+  reason: string;
+}
+
+/** Validates what a patient enters when booking (both the preview and EHR booking). */
+export function validateBookingInput(body: unknown, now = Date.now()): Result<BookingInput> {
   const b = (body ?? {}) as Record<string, unknown>;
   const pIn = (b.patient ?? {}) as Record<string, unknown>;
-
-  const practitioner = getPractitioner(str(b.practitionerId, 64));
-  if (!practitioner) return { ok: false, status: 400, error: 'Please choose a physician.' };
-
   const name = str(pIn.name, 120).replace(/\s+/g, ' ');
   const dateOfBirth = str(pIn.dateOfBirth, 10);
   const email = str(pIn.email, 200).toLowerCase();
@@ -155,6 +161,17 @@ export async function createBooking(body: unknown, now = Date.now()): Promise<Re
       status: 400,
       error: 'Please agree to the virtual care consent to continue.',
     };
+  const phone = phoneDigits ? (phoneRaw.startsWith('+') ? `+${phoneDigits}` : `+1${phoneDigits.slice(-10)}`) : '';
+  return { ok: true, value: { name, dateOfBirth, email, phone, healthCard, reason } };
+}
+
+export async function createBooking(body: unknown, now = Date.now()): Promise<Result<Visit>> {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const practitioner = getPractitioner(str(b.practitionerId, 64));
+  if (!practitioner) return { ok: false, status: 400, error: 'Please choose a physician.' };
+  const input = validateBookingInput(body, now);
+  if (!input.ok) return input;
+  const { name, dateOfBirth, email, phone, healthCard, reason } = input.value;
 
   const start = new Date(str(b.start, 40));
   if (!isBookableSlot(practitioner, start, now))
@@ -174,9 +191,7 @@ export async function createBooking(body: unknown, now = Date.now()): Promise<Re
     dateOfBirth,
     ...(healthCard ? { healthCardNumber: healthCard } : {}),
     ...(email ? { email } : {}),
-    ...(phoneDigits
-      ? { phone: phoneRaw.startsWith('+') ? `+${phoneDigits}` : `+1${phoneDigits.slice(-10)}` }
-      : {}),
+    ...(phone ? { phone } : {}),
   };
 
   const id = `v_${randomBytes(6).toString('hex')}`;

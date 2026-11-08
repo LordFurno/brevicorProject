@@ -1,5 +1,5 @@
 import { getDoctor, ownsVisit } from '@/lib/auth/doctor';
-import { json, jsonError } from '@/lib/http';
+import { json, jsonError, wrongOrigin } from '@/lib/http';
 import { getVisitStore } from '@/lib/visits/store';
 import { TRANSFORMATION_RE } from '@/media/cloudinary';
 import { signedPhotoUrl } from '@/media/photo-urls';
@@ -11,8 +11,7 @@ const MAX_ITEMS = 60;
 // Short-lived (5 min) viewing URLs for this patient's photos. The assigned
 // visit authorizes the patient's clinic-wide photo history, as for GET photos.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (req.headers.has('origin') && req.headers.get('origin') !== new URL(req.url).origin)
-    return jsonError(403, 'Invalid request origin.');
+  if (wrongOrigin(req)) return jsonError(403, 'Invalid request origin.');
   const doctor = await getDoctor();
   if (!doctor) return jsonError(401, 'Unauthorized');
   const visit = await getVisitStore().get(doctor.clinicId, (await params).id);

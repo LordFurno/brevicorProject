@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { bookingEnabled } from '@/lib/booking';
+import { anyBookingEnabled } from '@/lib/booking';
 import { Armchair, ArrowRight, CalendarCheck, Link2, ShieldCheck, Stethoscope, Video } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { buttonClasses } from '@/components/ui';
@@ -9,6 +9,9 @@ const steps = [
   { icon: Link2, title: 'Get your private link', text: 'We send a secure link to your visit. No account, password or app.' },
   { icon: Armchair, title: 'Wait, then meet', text: 'Relax in the virtual waiting room. Your doctor calls you in when they’re ready.' },
 ];
+
+// The booking button depends on runtime flags (EHR_BOOKING_ENABLED), so render per request.
+export const dynamic = 'force-dynamic';
 
 export default function Home() {
   return (
@@ -37,7 +40,7 @@ export default function Home() {
             Open the private visit link from your clinic, verify your date of birth, and wait comfortably until your doctor calls you in.
           </p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            {bookingEnabled() && <Link href="/book" className={buttonClasses('primary', 'lg', 'w-full sm:w-auto')}>
+            {anyBookingEnabled() && <Link href="/book" className={buttonClasses('primary', 'lg', 'w-full sm:w-auto')}>
               <Video /> Book a virtual visit <ArrowRight />
             </Link>}
             <Link href="/doctor/login" className={buttonClasses('secondary', 'lg', 'w-full sm:w-auto')}>

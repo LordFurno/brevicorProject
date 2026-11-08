@@ -27,6 +27,8 @@ interface Dependencies {
   search?: (path: string, ctx: GatewayContext) => Promise<Appointment[]>;
   read?: (path: string, ctx: GatewayContext) => Promise<Appointment>;
   dispatch?: Dispatch;
+  /** Called with the raw token of each new invitation (the link that is also sent). */
+  onInvited?: (appointmentRef: string, token: string) => void;
 }
 export async function syncVisits(
   clinicId: string,
@@ -183,6 +185,7 @@ export async function syncVisits(
         } else if (events.includes('invited')) {
           type = 'visit_invitation';
           summary.created++;
+          deps.onInvited?.(appointmentRef, token);
         } else summary.updated++;
         if (type) {
           const notificationType = type,
