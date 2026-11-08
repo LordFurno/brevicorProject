@@ -1,0 +1,13 @@
+# Normalise line endings so Windows and macOS/Linux teammates never
+# produce whole-file diffs or bogus merge conflicts.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
