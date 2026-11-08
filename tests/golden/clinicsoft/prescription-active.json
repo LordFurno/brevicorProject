@@ -1,0 +1,52 @@
+{
+  "note": "A -> active; intent order; local start -> UTC (EST); reason",
+  "resourceType": "MedicationRequest",
+  "vendor": {
+    "rxId": "rx-1",
+    "patientNo": "pat-100",
+    "encounterNo": "enc-1",
+    "startDateTime": "2026-01-15 09:30:00",
+    "stopDateTime": null,
+    "status": "A",
+    "rxnormCode": "860975",
+    "drugName": "24 HR metformin hydrochloride 500 MG Extended Release Oral Tablet",
+    "sig": null,
+    "reasonCode": "44054006",
+    "reasonDesc": "Diabetes mellitus type 2 (disorder)"
+  },
+  "expected": {
+    "resourceType": "MedicationRequest",
+    "id": "rx-1",
+    "status": "active",
+    "intent": "order",
+    "medicationCodeableConcept": {
+      "coding": [
+        {
+          "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+          "code": "860975",
+          "display": "24 HR metformin hydrochloride 500 MG Extended Release Oral Tablet"
+        }
+      ],
+      "text": "24 HR metformin hydrochloride 500 MG Extended Release Oral Tablet"
+    },
+    "subject": {
+      "reference": "Patient/pat-100"
+    },
+    "encounter": {
+      "reference": "Encounter/enc-1"
+    },
+    "authoredOn": "2026-01-15T14:30:00Z",
+    "reasonCode": [
+      {
+        "coding": [
+          {
+            "system": "http://snomed.info/sct",
+            "code": "44054006",
+            "display": "Diabetes mellitus type 2 (disorder)"
+          }
+        ],
+        "text": "Diabetes mellitus type 2 (disorder)"
+      }
+    ]
+  }
+}

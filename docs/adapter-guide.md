@@ -382,12 +382,17 @@ nothing like FHIR:
 | `schedule`, `schedule/{apptId}` | `providerNo`, `patientNo`, `from`, `to` (local dates), `status` (comma list) |
 | `encounters`, `encounters/{encounterNo}` | `patientNo`, `providerNo`, `apptId`, `from`, `to` (by start date) |
 | `documents`, `documents/{docId}` | `patientNo`, `encounterNo` |
+| `problems`, `problems/{problemId}` | `patientNo`, `status` (comma list) |
+| `allergies`, `allergies/{allergyId}` | `patientNo`, `status` |
+| `prescriptions`, `prescriptions/{rxId}` | `patientNo`, `status` (comma list) |
+| `results`, `results/{resultId}` | `patientNo`, `category`, `testCode` (comma lists), `from`, `to` (by local day) |
 
 ### Field mapping
 
 | ClinicSoft | FHIR |
 |---|---|
 | `patients.patientNo` / `chartNo` | `Patient.id` / `identifier` (type MR, system `$config.chartNoSystem`) |
+| `healthCardNo`, `healthCardVersion` | `identifier` (type JHN, system `$config.hcnSystem` = Ontario HCN; version in the CA Baseline `ext-identifierversion` extension) |
 | `title`, `firstName`, `middleName`, `lastName`, `suffix` | `name[use=official]` prefix/given/family/suffix |
 | `dob`, `deceasedDate` (DD/MM/YYYY) | `birthDate`, `deceasedDateTime` (date) |
 | `sex` M/F/U | `gender` male/female/unknown |
@@ -404,10 +409,22 @@ nothing like FHIR:
 | `startDateTime`/`endDateTime` (local) | `period` |
 | `apptId`, `orgId`, `encTypeCode/Desc` | `appointment`, `serviceProvider`, `type` (SNOMED) |
 | `documents.*` | `DocumentReference` (status `current`, `content.attachment`, `context.encounter`) |
+| `problems.status` A/R, `snomedCode`, `description` | `Condition.clinicalStatus` active/resolved, `code` (SNOMED CT) |
+| `onsetDate`, `resolvedDate` (local dates) | `onsetDateTime` (also `recordedDate`), `abatementDateTime` (date only) |
+| `allergies.status` A/I, `allergyType`, `category` FOOD/DRUG/ENV/BIO | `AllergyIntolerance.clinicalStatus` active/inactive, `type`, `category` food/medication/environment/biologic |
+| `allergenCode`/`allergen`, `reaction1..2` + `severity1..2` MILD/MOD/SEV | `code` (SNOMED CT), `reaction[].manifestation`, `severity` mild/moderate/severe |
+| `prescriptions.status` A/C, `rxnormCode`/`drugName`, `startDateTime`, `sig`, `reasonCode` | `MedicationRequest.status` active/completed, `medicationCodeableConcept` (RxNorm), `authoredOn`, `dosageInstruction.text`, `reasonCode` |
+| `results.category` VS/LAB, `testCode`/`testName`, `resultDateTime` | `Observation.category` vital-signs/laboratory, `code` (LOINC), `effectiveDateTime` |
+| `results.valueType` N / T / BP, `value`, `units` | `valueQuantity` (UCUM) / `valueCodeableConcept.text` / `85354-9` panel with diastolic + systolic `component`s, split from `"120/80"` |
 
 Defaults the mapping supplies, because ClinicSoft doesn't store them:
-`participant.status = accepted`, `DocumentReference.status = current`, and
+`participant.status = accepted`, `DocumentReference.status = current`,
+`Observation.status = final` (ClinicSoft holds only signed-off results),
+`MedicationRequest.intent = order` (a ClinicSoft prescription is an order), and
 `meta.versionId` as a content hash.
+
+The clinical maps needed **no engine change**: the code tables, the token
+`system` check, `multiple`, and JSONata's `$split`/`$number` cover them.
 
 ### Loading Synthea into ClinicSoft
 
@@ -421,6 +438,20 @@ Defaults the mapping supplies, because ClinicSoft doesn't store them:
   sets `title = 'Dr.'`, as Synthea's FHIR export does. US state names become
   two-letter codes.
 - **Phones and emails:** never loaded. The seed assigns `DEMO_PHONE_NUMBERS` / `DEMO_EMAILS`.
+- **Clinical history:** `conditions`, `allergies`, `medications` and
+  `observations` CSVs, with the same caps as the FHIR import (all problems and
+  allergies; prescriptions started in the last 2 years; vital-sign/lab results,
+  the latest 3 per LOINC code per patient). `fhir:reset` passes one "now" to
+  both so the medication window is identical.
+- **Ids for clinical rows:** the CSV has none, so each row's id is a SHA-256
+  of what identifies it (patient, encounter, code, start), shaped like a UUID,
+  plus an ordinal for exact duplicates. The same CSV always yields the same ids.
+- **Blood pressure:** the CSV has separate systolic (`8480-6`) and diastolic
+  (`8462-4`) rows; the loader stores each reading the ClinicSoft way, one
+  `85354-9` row with `value "120/80"`. The YAML rebuilds Synthea's FHIR panel.
+- **Encounter links** to encounters that weren't loaded are left empty.
+- **Health card numbers:** the same synthetic Ontario HCN as demo-mock
+  (`scripts/lib/hcn.ts`), deliberately failing the check digit.
 
 `npm run fhir:seed -- demo-mock` writes **one** appointment plan both as FHIR
 (demo-mock) and as `clinicsoft.schedule` rows, so the two clinics are directly comparable.
@@ -435,11 +466,18 @@ the adapter maps equals demo-mock's FHIR. These are the only exceptions:
 | Appointment | `created`, `appointmentType` (ROUTINE/FOLLOWUP), `cancelationReason`, `participant.required` | ClinicSoft's schedule has no columns for them |
 | Patient | Synthea extensions (race, ethnicity, birth sex, birthplace…), maiden name, SSN/driver's licence/passport identifiers, `maritalStatus`, `multipleBirth`, `communication`, address `country` and geolocation, narrative `text` | Not in Synthea's CSV / ClinicSoft's patient table |
 | all | `meta.versionId`, `meta.lastUpdated` | Different versioning: database version vs content hash |
+| Condition | `verificationStatus`, `category`, onset/abatement time of day | No columns; ClinicSoft keeps dates only (compared by day) |
+| AllergyIntolerance | `verificationStatus`, `criticality`, reactions beyond the first two | Synthea's CSV export carries at most two reactions and no criticality |
+| MedicationRequest | `category`, `requester`, `reasonReference`, `dosageInstruction` | Not in Synthea's medications CSV (ClinicSoft has `reasonCode` instead) |
+| Observation | `issued`, value precision, coded text values | Synthea's CSV rounds numbers to one decimal and keeps only the text of coded results |
 
 The fields the app depends on are asserted **identical** for every seeded
 appointment and patient:
 - **Appointment:** start, end, status, participants, visit mode.
-- **Patient:** name, birth date, telecom (phone and email), MRN.
+- **Patient:** name, birth date, telecom (phone and email), MRN, health card number.
+- **Clinical history of every booked patient:** each Condition, allergy,
+  MedicationRequest and Observation matches by code, dates and status
+  (Observations also by category and value, numbers within 0.05).
 
 ---
 

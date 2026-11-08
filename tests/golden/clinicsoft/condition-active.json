@@ -1,0 +1,44 @@
+{
+  "note": "A -> active; date-only onset; linked encounter",
+  "resourceType": "Condition",
+  "vendor": {
+    "problemId": "prob-1",
+    "patientNo": "pat-100",
+    "encounterNo": "enc-1",
+    "onsetDate": "2019-03-02",
+    "resolvedDate": null,
+    "status": "A",
+    "snomedCode": "44054006",
+    "description": "Diabetes mellitus type 2 (disorder)"
+  },
+  "expected": {
+    "resourceType": "Condition",
+    "id": "prob-1",
+    "clinicalStatus": {
+      "coding": [
+        {
+          "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+          "code": "active"
+        }
+      ]
+    },
+    "code": {
+      "coding": [
+        {
+          "system": "http://snomed.info/sct",
+          "code": "44054006",
+          "display": "Diabetes mellitus type 2 (disorder)"
+        }
+      ],
+      "text": "Diabetes mellitus type 2 (disorder)"
+    },
+    "subject": {
+      "reference": "Patient/pat-100"
+    },
+    "encounter": {
+      "reference": "Encounter/enc-1"
+    },
+    "onsetDateTime": "2019-03-02",
+    "recordedDate": "2019-03-02"
+  }
+}

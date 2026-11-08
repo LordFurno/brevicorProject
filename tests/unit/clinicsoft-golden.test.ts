@@ -20,6 +20,10 @@ const ENDPOINT: Record<string, [path: string, key: string]> = {
   Appointment: ['schedule', 'appointment'],
   Encounter: ['encounters', 'encounter'],
   DocumentReference: ['documents', 'document'],
+  Condition: ['problems', 'problem'],
+  AllergyIntolerance: ['allergies', 'allergy'],
+  MedicationRequest: ['prescriptions', 'prescription'],
+  Observation: ['results', 'result'],
 };
 
 interface GoldenCase {
@@ -65,12 +69,27 @@ describe('ClinicSoft golden mappings', () => {
   });
 
   it('covers every status, visit type, sex and encounter status code', () => {
-    const seen = (field: string) => new Set(cases.map(([, c]) => c.vendor[field]).filter((v) => v !== null && v !== undefined));
+    const seen = (field: string, type?: InScopeType) =>
+      new Set(cases.filter(([, c]) => !type || c.resourceType === type).map(([, c]) => c.vendor[field]).filter((v) => v !== null && v !== undefined));
     const codes = loadVendorDefinition('clinicsoft').codes;
-    expect([...seen('status')].sort()).toEqual(Object.keys(codes.appointmentStatus).sort());
+    expect([...seen('status', 'Appointment')].sort()).toEqual(Object.keys(codes.appointmentStatus).sort());
     expect([...seen('type')].sort()).toEqual(Object.keys(codes.visitMode).sort());
     expect([...seen('sex')].sort()).toEqual(Object.keys(codes.sex).sort());
     expect([...seen('encStatus')].sort()).toEqual(Object.keys(codes.encounterStatus).sort());
+  });
+
+  it('covers every code in the clinical code tables', () => {
+    const codes = loadVendorDefinition('clinicsoft').codes;
+    const seen = (type: InScopeType, ...fields: string[]) =>
+      [...new Set(cases.filter(([, c]) => c.resourceType === type).flatMap(([, c]) => fields.map((f) => c.vendor[f])).filter((v) => v !== null && v !== undefined))].sort();
+    expect(seen('Condition', 'status')).toEqual(Object.keys(codes.problemStatus).sort());
+    expect(seen('AllergyIntolerance', 'status')).toEqual(Object.keys(codes.allergyStatus).sort());
+    expect(seen('AllergyIntolerance', 'allergyType')).toEqual(Object.keys(codes.allergyType).sort());
+    expect(seen('AllergyIntolerance', 'category')).toEqual(Object.keys(codes.allergyCategory).sort());
+    expect(seen('AllergyIntolerance', 'severity1', 'severity2')).toEqual(Object.keys(codes.severity).sort());
+    expect(seen('MedicationRequest', 'status')).toEqual(Object.keys(codes.rxStatus).sort());
+    expect(seen('Observation', 'category')).toEqual(Object.keys(codes.resultCategory).sort());
+    expect(seen('Observation', 'valueType')).toEqual(Object.keys(codes.resultValueType).sort());
   });
 
   it.each(Object.entries(loadVendorDefinition('clinicsoft').codes.encounterClass))(

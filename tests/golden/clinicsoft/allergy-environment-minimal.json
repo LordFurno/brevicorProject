@@ -1,0 +1,51 @@
+{
+  "note": "ENV, no type, no reactions",
+  "resourceType": "AllergyIntolerance",
+  "vendor": {
+    "allergyId": "alg-3",
+    "patientNo": "pat-100",
+    "encounterNo": null,
+    "onsetDate": "1960-06-25",
+    "endDate": null,
+    "status": "A",
+    "allergenCode": "84489001",
+    "allergen": "Mold (organism)",
+    "allergyType": null,
+    "category": "ENV",
+    "reaction1Code": null,
+    "reaction1": null,
+    "severity1": null,
+    "reaction2Code": null,
+    "reaction2": null,
+    "severity2": null
+  },
+  "expected": {
+    "resourceType": "AllergyIntolerance",
+    "id": "alg-3",
+    "clinicalStatus": {
+      "coding": [
+        {
+          "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+          "code": "active"
+        }
+      ]
+    },
+    "category": [
+      "environment"
+    ],
+    "code": {
+      "coding": [
+        {
+          "system": "http://snomed.info/sct",
+          "code": "84489001",
+          "display": "Mold (organism)"
+        }
+      ],
+      "text": "Mold (organism)"
+    },
+    "patient": {
+      "reference": "Patient/pat-100"
+    },
+    "recordedDate": "1960-06-25"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "note": "LAB + T -> laboratory valueCodeableConcept.text",
+  "resourceType": "Observation",
+  "vendor": {
+    "resultId": "res-2",
+    "patientNo": "pat-100",
+    "encounterNo": null,
+    "resultDateTime": "2020-12-18 04:42:51",
+    "category": "LAB",
+    "testCode": "92142-9",
+    "testName": "Influenza virus A RNA [Presence] in Respiratory system specimen by NAA with probe detection",
+    "value": "Negative (qualifier value)",
+    "units": null,
+    "valueType": "T"
+  },
+  "expected": {
+    "resourceType": "Observation",
+    "id": "res-2",
+    "status": "final",
+    "category": [
+      {
+        "coding": [
+          {
+            "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+            "code": "laboratory",
+            "display": "Laboratory"
+          }
+        ]
+      }
+    ],
+    "code": {
+      "coding": [
+        {
+          "system": "http://loinc.org",
+          "code": "92142-9",
+          "display": "Influenza virus A RNA [Presence] in Respiratory system specimen by NAA with probe detection"
+        }
+      ],
+      "text": "Influenza virus A RNA [Presence] in Respiratory system specimen by NAA with probe detection"
+    },
+    "subject": {
+      "reference": "Patient/pat-100"
+    },
+    "effectiveDateTime": "2020-12-18T09:42:51Z",
+    "valueCodeableConcept": {
+      "text": "Negative (qualifier value)"
+    }
+  }
+}

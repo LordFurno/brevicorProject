@@ -1,14 +1,31 @@
-import type { Appointment, DocumentReference, Encounter, FhirResource, Organization, Patient, Practitioner } from 'fhir/r4';
+import type {
+  AllergyIntolerance,
+  Appointment,
+  Condition,
+  DocumentReference,
+  Encounter,
+  FhirResource,
+  MedicationRequest,
+  Observation,
+  Organization,
+  Patient,
+  Practitioner,
+} from 'fhir/r4';
 import { formatLocal } from '@/lib/fhir/providers/adapter/helpers';
 import {
   isoToDdmmyyyy,
   patientRow,
   providerRow,
   withPractice,
+  type AllergySeverity,
+  type ClinicSoftAllergy,
   type ClinicSoftAppointment,
   type ClinicSoftDocument,
   type ClinicSoftEncounter,
   type ClinicSoftOrganization,
+  type ClinicSoftPrescription,
+  type ClinicSoftProblem,
+  type ClinicSoftResult,
 } from '@/lib/vendors/clinicsoft/rows';
 
 /**
@@ -23,6 +40,9 @@ const idOf = (reference: string | undefined) => (reference ? reference.split('/'
 const sex = (g: string | undefined) => (g === 'male' ? 'M' : g === 'female' ? 'F' : g ? 'U' : null);
 const ENC_CLASS: Record<string, string> = { AMB: 'ambulatory', VR: 'virtual', EMER: 'emergency', IMP: 'inpatient', HH: 'home' };
 const ENC_STATUS: Record<string, 'OPEN' | 'CLOSED' | 'VOID'> = { 'in-progress': 'OPEN', finished: 'CLOSED', cancelled: 'VOID' };
+const ALLERGY_CATEGORY: Record<string, ClinicSoftAllergy['category']> = { food: 'FOOD', medication: 'DRUG', environment: 'ENV', biologic: 'BIO' };
+const SEVERITY: Record<string, AllergySeverity> = { mild: 'MILD', moderate: 'MOD', severe: 'SEV' };
+const coding = (cc: { coding?: { code?: string }[] } | undefined) => cc?.coding?.[0];
 
 export function clinicSoftFixtureRows(practiceId: string, fixtures: FhirResource[]) {
   const of = <T extends FhirResource>(type: T['resourceType']) => fixtures.filter((r): r is T => r.resourceType === type);
@@ -118,6 +138,77 @@ export function clinicSoftFixtureRows(practiceId: string, fixtures: FhirResource
     }),
   );
 
+  const problems = of<Condition>('Condition').map((c) =>
+    withPractice<ClinicSoftProblem>(practiceId, {
+      problemId: c.id!,
+      patientNo: idOf(c.subject.reference)!,
+      encounterNo: idOf(c.encounter?.reference),
+      onsetDate: c.onsetDateTime!,
+      resolvedDate: c.abatementDateTime ?? null,
+      status: coding(c.clinicalStatus)?.code === 'resolved' ? 'R' : 'A',
+      snomedCode: coding(c.code)!.code!,
+      description: c.code!.text!,
+    }),
+  );
+
+  const allergies = of<AllergyIntolerance>('AllergyIntolerance').map((a) => {
+    const reaction = (i: number) => a.reaction?.[i];
+    const severity = (i: number) => {
+      const s = reaction(i)?.severity;
+      return s ? SEVERITY[s] : null;
+    };
+    return withPractice<ClinicSoftAllergy>(practiceId, {
+      allergyId: a.id!,
+      patientNo: idOf(a.patient.reference)!,
+      encounterNo: idOf(a.encounter?.reference),
+      onsetDate: a.recordedDate!,
+      endDate: null,
+      status: coding(a.clinicalStatus)?.code === 'inactive' ? 'I' : 'A',
+      allergenCode: coding(a.code)!.code!,
+      allergen: a.code!.text!,
+      allergyType: a.type === 'intolerance' ? 'INTOLERANCE' : a.type === 'allergy' ? 'ALLERGY' : null,
+      category: a.category?.[0] ? ALLERGY_CATEGORY[a.category[0]] : null,
+      reaction1Code: coding(reaction(0)?.manifestation[0])?.code ?? null,
+      reaction1: reaction(0)?.manifestation[0].text ?? null,
+      severity1: severity(0),
+      reaction2Code: coding(reaction(1)?.manifestation[0])?.code ?? null,
+      reaction2: reaction(1)?.manifestation[0].text ?? null,
+      severity2: severity(1),
+    });
+  });
+
+  const prescriptions = of<MedicationRequest>('MedicationRequest').map((m) =>
+    withPractice<ClinicSoftPrescription>(practiceId, {
+      rxId: m.id!,
+      patientNo: idOf(m.subject.reference)!,
+      encounterNo: idOf(m.encounter?.reference),
+      startDateTime: local(m.authoredOn!, 'YYYY-MM-DD HH:mm:ss'),
+      stopDateTime: null,
+      status: m.status === 'completed' ? 'C' : 'A',
+      rxnormCode: coding(m.medicationCodeableConcept)!.code!,
+      drugName: m.medicationCodeableConcept!.text!,
+      sig: null,
+      reasonCode: null,
+      reasonDesc: null,
+    }),
+  );
+
+  const results = of<Observation>('Observation').map((o) => {
+    const bp = o.component?.length === 2; // [diastolic, systolic], stored as 'systolic/diastolic'
+    return withPractice<ClinicSoftResult>(practiceId, {
+      resultId: o.id!,
+      patientNo: idOf(o.subject?.reference)!,
+      encounterNo: idOf(o.encounter?.reference),
+      resultDateTime: local(o.effectiveDateTime!, 'YYYY-MM-DD HH:mm:ss'),
+      category: coding(o.category?.[0])?.code === 'laboratory' ? 'LAB' : 'VS',
+      testCode: coding(o.code)!.code!,
+      testName: o.code.text!,
+      value: bp ? `${o.component![1].valueQuantity!.value}/${o.component![0].valueQuantity!.value}` : String(o.valueQuantity!.value),
+      units: bp ? o.component![0].valueQuantity!.unit! : o.valueQuantity!.unit!,
+      valueType: bp ? 'BP' : 'N',
+    });
+  });
+
   // Insert order respects foreign keys.
-  return { organizations, providers, patients, schedule, encounters, documents };
+  return { organizations, providers, patients, schedule, encounters, documents, problems, allergies, prescriptions, results };
 }

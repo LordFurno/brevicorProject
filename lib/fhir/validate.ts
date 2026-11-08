@@ -27,7 +27,28 @@ const CODES = {
     'finished', 'cancelled', 'entered-in-error', 'unknown',
   ],
   documentReferenceStatus: ['current', 'superseded', 'entered-in-error'],
+  compositionStatus: ['preliminary', 'final', 'amended', 'entered-in-error'],
+  allergyType: ['allergy', 'intolerance'],
+  allergyCategory: ['food', 'medication', 'environment', 'biologic'],
+  allergyCriticality: ['low', 'high', 'unable-to-assess'],
+  reactionSeverity: ['mild', 'moderate', 'severe'],
+  medicationRequestStatus: [
+    'active', 'on-hold', 'cancelled', 'completed', 'entered-in-error', 'stopped', 'draft', 'unknown',
+  ],
+  medicationRequestIntent: [
+    'proposal', 'plan', 'order', 'original-order', 'reflex-order', 'filler-order', 'instance-order', 'option',
+  ],
+  observationStatus: [
+    'registered', 'preliminary', 'final', 'amended', 'corrected', 'cancelled', 'entered-in-error', 'unknown',
+  ],
 };
+
+/** value[x] / onset[x]-style choice elements: at most one variant may be present. */
+function choice(c: Checker, obj: Json, prefix: string, path: string): string | undefined {
+  const present = Object.keys(obj).filter((k) => k.startsWith(prefix) && /^[A-Z]/.test(k.slice(prefix.length)));
+  if (present.length > 1) c.fail('structure', `${path}.${prefix}[x]`, `${path}.${prefix}[x] may only have one type`);
+  return present[0];
+}
 
 class Checker {
   readonly issues: OperationOutcomeIssue[] = [];
@@ -163,11 +184,71 @@ export function validateResource(resource: unknown, expectedType?: string): Oper
           }
         });
       }
+      c.code(resource, 'docStatus', type, CODES.compositionStatus);
       c.format(resource, 'date', type, INSTANT, 'instant');
+      c.array(resource, 'author', type);
       const context = c.object(resource, 'context', type);
       if (context) c.array(context, 'encounter', `${type}.context`);
       break;
     }
+    case 'Condition':
+      if (c.required(resource, 'subject', type)) c.object(resource, 'subject', type);
+      c.object(resource, 'clinicalStatus', type);
+      c.object(resource, 'code', type);
+      c.format(resource, 'onsetDateTime', type, DATETIME, 'dateTime');
+      c.format(resource, 'abatementDateTime', type, DATETIME, 'dateTime');
+      c.format(resource, 'recordedDate', type, DATETIME, 'dateTime');
+      choice(c, resource, 'onset', type);
+      choice(c, resource, 'abatement', type);
+      if (resource.abatementDateTime !== undefined || resource.abatementPeriod !== undefined) {
+        const status = (resource.clinicalStatus as Json | undefined)?.coding as Json[] | undefined;
+        if (status?.some((s) => ['active', 'recurrence', 'relapse'].includes(s.code as string))) {
+          c.fail('invariant', type, 'con-4: an abated condition cannot be active, recurrence or relapse');
+        }
+      }
+      break;
+    case 'AllergyIntolerance':
+      if (c.required(resource, 'patient', type)) c.object(resource, 'patient', type);
+      c.code(resource, 'type', type, CODES.allergyType);
+      c.code(resource, 'criticality', type, CODES.allergyCriticality);
+      if (resource.category !== undefined) {
+        if (!Array.isArray(resource.category) || resource.category.some((x) => !CODES.allergyCategory.includes(x as string))) {
+          c.fail('code-invalid', `${type}.category`, `${type}.category must be a list of: ${CODES.allergyCategory.join(', ')}`);
+        }
+      }
+      c.format(resource, 'recordedDate', type, DATETIME, 'dateTime');
+      c.format(resource, 'onsetDateTime', type, DATETIME, 'dateTime');
+      choice(c, resource, 'onset', type);
+      c.array(resource, 'reaction', type).forEach((r, i) => {
+        const path = `${type}.reaction[${i}]`;
+        if (c.required(r, 'manifestation', path)) c.array(r, 'manifestation', path);
+        c.code(r, 'severity', path, CODES.reactionSeverity);
+      });
+      break;
+    case 'MedicationRequest':
+      if (c.required(resource, 'status', type)) c.code(resource, 'status', type, CODES.medicationRequestStatus);
+      if (c.required(resource, 'intent', type)) c.code(resource, 'intent', type, CODES.medicationRequestIntent);
+      if (c.required(resource, 'subject', type)) c.object(resource, 'subject', type);
+      if (!choice(c, resource, 'medication', type)) {
+        c.fail('required', `${type}.medication[x]`, `${type}.medication[x] is required`);
+      }
+      c.format(resource, 'authoredOn', type, DATETIME, 'dateTime');
+      c.array(resource, 'dosageInstruction', type);
+      break;
+    case 'Observation':
+      if (c.required(resource, 'status', type)) c.code(resource, 'status', type, CODES.observationStatus);
+      if (c.required(resource, 'code', type)) c.object(resource, 'code', type);
+      c.array(resource, 'category', type);
+      c.format(resource, 'effectiveDateTime', type, DATETIME, 'dateTime');
+      c.format(resource, 'issued', type, INSTANT, 'instant');
+      choice(c, resource, 'effective', type);
+      choice(c, resource, 'value', type);
+      c.array(resource, 'component', type).forEach((comp, i) => {
+        const path = `${type}.component[${i}]`;
+        if (c.required(comp, 'code', path)) c.object(comp, 'code', path);
+        choice(c, comp, 'value', path);
+      });
+      break;
   }
 
   checkReferences(c, resource, type);

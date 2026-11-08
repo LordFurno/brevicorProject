@@ -1,5 +1,6 @@
-import type { Bundle, Encounter, FhirResource, Identifier, Patient } from 'fhir/r4';
+import type { Bundle, Encounter, FhirResource, Identifier, Medication, MedicationRequest, Observation, Patient } from 'fhir/r4';
 import { validateResource } from '@/lib/fhir/validate';
+import { hcnIdentifier, syntheticHcn } from './hcn';
 
 /**
  * Pure transform from Synthea FHIR R4 output to the resources the mock keeps.
@@ -13,7 +14,43 @@ import { validateResource } from '@/lib/fhir/validate';
  * so every stored resource is valid R4 with no dangling links.
  */
 
-export const KEPT_TYPES = new Set(['Patient', 'Practitioner', 'Organization', 'Encounter']);
+export const KEPT_TYPES = new Set([
+  'Patient',
+  'Practitioner',
+  'Organization',
+  'Encounter',
+  'Condition',
+  'AllergyIntolerance',
+  'MedicationRequest',
+  'Observation',
+]);
+
+/**
+ * How much clinical history the mock keeps per patient (the ClinicSoft loader
+ * applies the same rules to Synthea's CSV): every Condition and allergy,
+ * MedicationRequests authored in the last `medicationYears`, and only
+ * vital-signs/laboratory Observations, the latest `observationsPerCode` per LOINC code.
+ */
+export interface ClinicalCaps {
+  now: Date;
+  medicationYears: number;
+  observationCategories: string[];
+  observationsPerCode: number;
+}
+
+export function defaultCaps(now = new Date()): ClinicalCaps {
+  return { now, medicationYears: 2, observationCategories: ['vital-signs', 'laboratory'], observationsPerCode: 3 };
+}
+
+/** Start of the medication window: `now` minus N calendar years. */
+export function medicationCutoff(caps: ClinicalCaps): Date {
+  const d = new Date(caps.now);
+  d.setUTCFullYear(d.getUTCFullYear() - caps.medicationYears);
+  return d;
+}
+
+const LOINC = 'http://loinc.org';
+const OBS_CATEGORY = 'http://terminology.hl7.org/CodeSystem/observation-category';
 
 export interface ProviderIndex {
   /** "Type|system|value" -> "Type/id" */
@@ -25,12 +62,14 @@ export interface ProviderIndex {
 export interface TransformStats {
   kept: Record<string, number>;
   droppedEncounters: number;
+  /** Dropped by the clinical caps, per type. */
+  droppedByCap: Record<string, number>;
   unresolvedReferences: number;
   invalid: number;
 }
 
 export function emptyStats(): TransformStats {
-  return { kept: {}, droppedEncounters: 0, unresolvedReferences: 0, invalid: 0 };
+  return { kept: {}, droppedEncounters: 0, droppedByCap: {}, unresolvedReferences: 0, invalid: 0 };
 }
 
 export function isProviderFile(fileName: string): boolean {
@@ -66,18 +105,24 @@ export function transformPatientBundle(
   index: ProviderIndex,
   maxEncountersPerPatient: number,
   stats: TransformStats,
+  caps: ClinicalCaps = defaultCaps(),
 ): FhirResource[] {
   const byFullUrl = new Map<string, string>();
-  const kept: FhirResource[] = [];
+  const medications = new Map<string, Medication>();
+  let kept: FhirResource[] = [];
   for (const entry of bundle.entry ?? []) {
     const r = entry.resource;
     if (!r?.id) continue;
     const ref = `${r.resourceType}/${r.id}`;
     if (entry.fullUrl) byFullUrl.set(entry.fullUrl, ref);
     byFullUrl.set(`urn:uuid:${r.id}`, ref);
-    if (r.resourceType === 'Patient') kept.push(withoutContacts(r));
+    if (r.resourceType === 'Medication') medications.set(ref, r);
+    if (r.resourceType === 'Patient') kept.push(withSyntheticHcn(withoutContacts(r)));
     else if (KEPT_TYPES.has(r.resourceType)) kept.push(r);
   }
+  kept = applyClinicalCaps(kept, caps, stats).map((r) =>
+    r.resourceType === 'MedicationRequest' ? inlineMedication(r, byFullUrl, medications) : r,
+  );
 
   // Keep only the most recent encounters per patient.
   const encounters = kept
@@ -170,6 +215,70 @@ function rewriteOne(
   delete ref.reference;
   if (identifier && ref.identifier === undefined) ref.identifier = identifier;
   if (typeof ref.display !== 'string') ref.display = `${typeName ?? 'Resource'} (not imported)`;
+}
+
+function drop(stats: TransformStats, type: string): void {
+  stats.droppedByCap[type] = (stats.droppedByCap[type] ?? 0) + 1;
+}
+
+/** Applies the MedicationRequest window and the Observation category/per-code caps. */
+function applyClinicalCaps(resources: FhirResource[], caps: ClinicalCaps, stats: TransformStats): FhirResource[] {
+  const cutoff = medicationCutoff(caps).getTime();
+  const observationsByCode = new Map<string, Observation[]>();
+  const out: FhirResource[] = [];
+  for (const r of resources) {
+    if (r.resourceType === 'MedicationRequest') {
+      const authored = r.authoredOn ? Date.parse(r.authoredOn) : NaN;
+      if (authored >= cutoff) out.push(r);
+      else drop(stats, r.resourceType);
+    } else if (r.resourceType === 'Observation') {
+      const code = loincCode(r);
+      if (code && observationCategory(r, caps)) observationsByCode.set(code, [...(observationsByCode.get(code) ?? []), r]);
+      else drop(stats, r.resourceType);
+    } else {
+      out.push(r);
+    }
+  }
+  for (const list of observationsByCode.values()) {
+    list.sort((a, b) => observationTime(b) - observationTime(a));
+    out.push(...list.slice(0, caps.observationsPerCode));
+    for (const _ of list.slice(caps.observationsPerCode)) drop(stats, 'Observation');
+  }
+  return out;
+}
+
+export function loincCode(o: Observation): string | undefined {
+  return o.code.coding?.find((c) => c.system === LOINC && c.code)?.code;
+}
+
+function observationCategory(o: Observation, caps: ClinicalCaps): boolean {
+  return !!o.category?.some((cat) =>
+    cat.coding?.some((c) => c.system === OBS_CATEGORY && caps.observationCategories.includes(c.code ?? '')),
+  );
+}
+
+function observationTime(o: Observation): number {
+  const t = Date.parse(o.effectiveDateTime ?? o.effectivePeriod?.start ?? o.issued ?? '');
+  return Number.isNaN(t) ? -Infinity : t;
+}
+
+/**
+ * Medication isn't a gateway type, so a MedicationRequest that points at a
+ * Medication in the same bundle gets that Medication's code inline
+ * (medicationCodeableConcept), the way most EHRs expose it.
+ */
+function inlineMedication(r: MedicationRequest, byFullUrl: Map<string, string>, medications: Map<string, Medication>): MedicationRequest {
+  const ref = r.medicationReference?.reference;
+  if (!ref) return r;
+  const medication = medications.get(byFullUrl.get(ref) ?? ref);
+  if (!medication?.code) return r;
+  const { medicationReference: _ref, ...rest } = r;
+  return { ...rest, medicationCodeableConcept: medication.code };
+}
+
+/** Adds a synthetic Ontario health card number (always fails the check digit). */
+function withSyntheticHcn(patient: Patient): Patient {
+  return { ...patient, identifier: [...(patient.identifier ?? []), hcnIdentifier(syntheticHcn(patient.id!))] };
 }
 
 /**

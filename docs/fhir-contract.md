@@ -29,6 +29,10 @@ Everything here is enforced by `tests/conformance/provider-contract.ts`.
 | Appointment | read, search | |
 | Encounter | read, search | create, update |
 | DocumentReference | read, search | create |
+| Condition | read, search | |
+| AllergyIntolerance | read, search | |
+| MedicationRequest | read, search | |
+| Observation | read, search | |
 
 The mock clinic (`demo-mock`) supports exactly the writes in the right-hand
 column. `hapi-public` and `demo-clinicsoft` (a non-FHIR EMR behind the adapter)
@@ -49,6 +53,10 @@ Guaranteed parameters:
 | Appointment | `patient`, `practitioner`, `actor`, `date`, `status` |
 | Encounter | `patient`, `subject`, `appointment`, `date` |
 | DocumentReference | `patient`, `subject`, `encounter` |
+| Condition | `patient`, `subject`, `clinical-status` |
+| AllergyIntolerance | `patient` (R4 defines no `subject` here) |
+| MedicationRequest | `patient`, `subject`, `status` |
+| Observation | `patient`, `subject`, `category`, `code`, `date` |
 
 Semantics (R4):
 
@@ -59,7 +67,10 @@ Semantics (R4):
 - **date**: prefixes `eq` (default), `ge`, `gt`, `le`, `lt`. The value's
   precision defines a range: `2026-11-07` is that whole day. **Dates and times
   without an offset are in the clinic's timezone** (America/Toronto).
-  Appointment `date` = `start`; Encounter `date` = `period`.
+  Appointment `date` = `start`; Encounter `date` = `period`; Observation `date` = `effective[x]`.
+- **CodeableConcept tokens** (`clinical-status`, `category`, `code`): `code`
+  matches that code in any system; `system|code` matches only that system
+  (`code=http://loinc.org|8867-4`, `clinical-status=active`).
 - Comma means OR (`status=booked,arrived`). Repeating a parameter means AND
   (`date=ge2026-11-07&date=lt2026-11-08`).
 - `_count`: default 20, max 100. `_count=0` returns the total only. Follow
@@ -75,7 +86,8 @@ Semantics (R4):
 
   The gateway's own `next` links always work.
 - At `demo-clinicsoft`, Encounter `date` filters by the day the encounter
-  starts. This is the same for same-day visits.
+  starts. This is the same for same-day visits. Observation `date` also takes
+  whole days only.
 
 Results come back as a `searchset` Bundle with gateway `fullUrl`s and
 `search.mode = match`. `total` is present when the EHR provides it.
@@ -93,6 +105,41 @@ This is the field to key on: every clinic sets it, including the adapter clinic.
 (R4 spelling) and `created` are present only where the EHR records them
 (demo-mock does; ClinicSoft doesn't). The visit reason, where known, is in
 `reasonCode[0].text`.
+
+## Clinical history
+
+What the chart reads. Every clinic holds the same demo history (Synthea),
+capped the same way:
+
+- **Condition**: all of them. `clinicalStatus` is `active` or `resolved`
+  (`http://terminology.hl7.org/CodeSystem/condition-clinical`). The chart asks
+  for `clinical-status=active`.
+- **AllergyIntolerance**: all of them.
+- **MedicationRequest**: authored in the last 2 years, with the drug in
+  `medicationCodeableConcept` (RxNorm), never a `medicationReference`.
+  `status` is `active` or `completed`. The chart asks for `status=active`.
+- **Observation**: `vital-signs` and `laboratory` only, the latest 3 per LOINC
+  code per patient. Blood pressure is one `85354-9` panel with diastolic
+  (`8462-4`) and systolic (`8480-6`) components. Text results are in
+  `valueString` or `valueCodeableConcept.text`.
+
+Encounters that weren't kept (the 10 most recent per patient are) appear as
+logical references (`display` only). A clinic whose EHR doesn't serve one of
+these types leaves it out of `/metadata`; the chart then shows that section as
+unavailable instead of empty.
+
+## Patient identifiers
+
+- MRN: `type` v2-0203 `MR`, the clinic's system.
+- Ontario health card number (HCN): `system`
+  `https://fhir.infoway-inforoute.ca/NamingSystem/ca-on-patient-hcn` (Canada
+  Health Infoway's NamingSystem `ca-on-patient-hcn`, used by Ontario's OLIS R4
+  and MI profiles; Infoway lists `http://ehealthontario.ca/API/FHIR/NamingSystem/ca-on-patient-hcn`
+  as the older alternate, which readers should also accept). `type` v2-0203
+  `JHN`; the two-letter version code is in the extension
+  `http://hl7.org/fhir/ca/baseline/StructureDefinition/ext-identifierversion`
+  (`valueString`). **Demo numbers are synthetic and deliberately fail the HCN
+  check digit** (Luhn mod 10 over the first 9 digits), so none can be a real card.
 
 ## Patient phone numbers and emails
 

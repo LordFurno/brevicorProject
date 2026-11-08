@@ -1,4 +1,4 @@
-import type { FhirResource, Identifier, Reference } from 'fhir/r4';
+import type { CodeableConcept, FhirResource, Identifier, Reference } from 'fhir/r4';
 import { FhirError } from '../outcome';
 import type { InScopeType, SearchParamDef } from '../provider';
 import {
@@ -22,7 +22,8 @@ import {
  */
 
 export type MockParam =
-  | { name: string; kind: 'id' | 'string' | 'identifier' | 'code' | 'date' }
+  /** concept: a token over a CodeableConcept (system|code, or code in any system). */
+  | { name: string; kind: 'id' | 'string' | 'identifier' | 'code' | 'concept' | 'date' }
   | { name: string; kind: 'reference'; targets: string[] };
 
 const ID: MockParam = { name: '_id', kind: 'id' };
@@ -62,6 +63,28 @@ export const MOCK_SEARCH_PARAMS: Record<InScopeType, MockParam[]> = {
     { name: 'subject', kind: 'reference', targets: ['Patient', 'Practitioner', 'Group', 'Device'] },
     { name: 'encounter', kind: 'reference', targets: ['Encounter', 'EpisodeOfCare'] },
   ],
+  Condition: [
+    ID,
+    { name: 'patient', kind: 'reference', targets: ['Patient'] },
+    { name: 'subject', kind: 'reference', targets: ['Patient', 'Group'] },
+    { name: 'clinical-status', kind: 'concept' },
+  ],
+  // R4 defines no `subject` search parameter on AllergyIntolerance.
+  AllergyIntolerance: [ID, { name: 'patient', kind: 'reference', targets: ['Patient'] }],
+  MedicationRequest: [
+    ID,
+    { name: 'patient', kind: 'reference', targets: ['Patient'] },
+    { name: 'subject', kind: 'reference', targets: ['Patient', 'Group'] },
+    { name: 'status', kind: 'code' },
+  ],
+  Observation: [
+    ID,
+    { name: 'patient', kind: 'reference', targets: ['Patient'] },
+    { name: 'subject', kind: 'reference', targets: ['Patient', 'Group', 'Device', 'Location'] },
+    { name: 'category', kind: 'concept' },
+    { name: 'code', kind: 'concept' },
+    { name: 'date', kind: 'date' },
+  ],
 };
 
 const PARAM_TYPE: Record<MockParam['kind'], SearchParamDef['type']> = {
@@ -69,6 +92,7 @@ const PARAM_TYPE: Record<MockParam['kind'], SearchParamDef['type']> = {
   string: 'string',
   identifier: 'token',
   code: 'token',
+  concept: 'token',
   date: 'date',
   reference: 'reference',
 };
@@ -143,6 +167,13 @@ export function extractSearchColumns(resource: FhirResource, timeZone = defaultT
       tokens.add(`identifier:${system ?? ''}|${value}`);
     }
   };
+  const addConcept = (param: string, concept: CodeableConcept | undefined): void => {
+    for (const { system, code } of concept?.coding ?? []) {
+      if (!code) continue;
+      tokens.add(`${param}:${code}`);
+      tokens.add(`${param}:${system ?? ''}|${code}`);
+    }
+  };
   const addString = (param: string, value: string | undefined): void => {
     const n = value ? normalizeString(value) : '';
     if (n) strings.push(`${param}:${n}`);
@@ -188,6 +219,25 @@ export function extractSearchColumns(resource: FhirResource, timeZone = defaultT
     case 'DocumentReference':
       addSubject(resource.subject);
       for (const encounter of resource.context?.encounter ?? []) addRef('encounter', encounter);
+      break;
+    case 'Condition':
+      addSubject(resource.subject);
+      addConcept('clinical-status', resource.clinicalStatus);
+      break;
+    case 'AllergyIntolerance':
+      addRef('patient', resource.patient);
+      break;
+    case 'MedicationRequest':
+      addSubject(resource.subject);
+      if (resource.status) tokens.add(`status:${resource.status}`);
+      break;
+    case 'Observation':
+      addSubject(resource.subject);
+      for (const category of resource.category ?? []) addConcept('category', category);
+      addConcept('code', resource.code);
+      if (resource.effectiveDateTime) setRange(resource.effectiveDateTime, resource.effectiveDateTime);
+      else if (resource.effectivePeriod) setRange(resource.effectivePeriod.start, resource.effectivePeriod.end);
+      else if (resource.effectiveInstant) setRange(resource.effectiveInstant, resource.effectiveInstant);
       break;
   }
 
@@ -238,11 +288,12 @@ export function compileSearch(
           }),
         };
       case 'identifier':
+      case 'concept':
         return {
           column: 'tokens',
           anyOf: values.map((v) => {
             const t = parseToken(v);
-            return t.system === undefined ? `identifier:${t.code}` : `identifier:${t.system}|${t.code}`;
+            return t.system === undefined ? `${def.name}:${t.code}` : `${def.name}:${t.system}|${t.code}`;
           }),
         };
       case 'code':

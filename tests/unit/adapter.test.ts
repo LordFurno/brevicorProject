@@ -55,7 +55,12 @@ describe('capabilities come from the YAML', () => {
   it('lists types, read/search, and declared params; no writes', async () => {
     const caps = await adapter(() => ({ body: {} })).provider.capabilities();
     const byType = Object.fromEntries(caps.resources.map((r) => [r.type, r]));
-    expect(Object.keys(byType).sort()).toEqual(['Appointment', 'DocumentReference', 'Encounter', 'Organization', 'Patient', 'Practitioner']);
+    expect(Object.keys(byType).sort()).toEqual([
+      'AllergyIntolerance', 'Appointment', 'Condition', 'DocumentReference', 'Encounter',
+      'MedicationRequest', 'Observation', 'Organization', 'Patient', 'Practitioner',
+    ]);
+    expect(byType.AllergyIntolerance.searchParams.map((p) => p.name)).toEqual(['_id', 'patient']);
+    expect(byType.Observation.searchParams.map((p) => p.name)).toEqual(['_id', 'patient', 'subject', 'category', 'code', 'date']);
     expect(byType.Organization.interactions).toEqual(['read']);
     expect(byType.Appointment.interactions).toEqual(['read', 'search-type']);
     expect(byType.Appointment.searchParams.map((p) => p.name)).toEqual(['_id', 'patient', 'practitioner', 'actor', 'date', 'status']);
@@ -254,7 +259,7 @@ resources:
     const base = (resources: string) => `vendor: x\nname: X\ntimezone: UTC\nauth: { type: apiKey, header: K }\npaging: { pageParam: p, sizeParam: n, maxPageSize: 5 }\nresources:\n${resources}`;
     const bodies: Record<string, string> = {
       'bad JSONata': `  Patient:\n    read: { path: "/p/{id}", result: p }\n    map: '{ "resourceType": '`,
-      'unknown resource type': `  Observation:\n    read: { path: "/o/{id}", result: o }\n    map: '{}'`,
+      'unknown resource type': `  ImagingStudy:\n    read: { path: "/o/{id}", result: o }\n    map: '{}'`,
       'bad prefix': `  Patient:\n    search: { path: /p, results: p, params: { birthdate: { type: date, prefixes: [ap] } } }\n    map: '{}'`,
     };
     expect(() => parseVendorDefinition(base(bodies[label]), 'broken.yaml')).toThrow(AdapterConfigError);

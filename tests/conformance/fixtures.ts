@@ -13,6 +13,16 @@ import type { InScopeType } from '@/lib/fhir/provider';
 export const MRN = 'https://brevicor.ca/fhir/sid/test-mrn';
 export const LICENCE = 'https://brevicor.ca/fhir/sid/test-licence';
 const ACT_CODE = 'http://terminology.hl7.org/CodeSystem/v3-ActCode';
+const SCT = 'http://snomed.info/sct';
+const LOINC = 'http://loinc.org';
+const UCUM = 'http://unitsofmeasure.org';
+export const CONDITION_CLINICAL = 'http://terminology.hl7.org/CodeSystem/condition-clinical';
+const ALLERGY_CLINICAL = 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical';
+const OBS_CATEGORY = 'http://terminology.hl7.org/CodeSystem/observation-category';
+const RXNORM = 'http://www.nlm.nih.gov/research/umls/rxnorm';
+const concept = (system: string, code: string, display: string) => ({ coding: [{ system, code, display }], text: display });
+const category = (code: string, display: string) => [{ coding: [{ system: OBS_CATEGORY, code, display }] }];
+const quantity = (value: number, unit: string) => ({ value, unit, system: UCUM, code: unit });
 
 export const FIXTURES: FhirResource[] = [
   { resourceType: 'Organization', id: 'cf-org-1', name: 'Conformance Clinic', identifier: [{ system: LICENCE, value: 'CF-ORG-1' }] },
@@ -112,6 +122,94 @@ export const FIXTURES: FhirResource[] = [
     context: { encounter: [{ reference: 'Encounter/cf-enc-1' }] },
     content: [{ attachment: { contentType: 'text/plain', data: 'c3ludGhldGljIG5vdGU=' } }],
   },
+  // --- Clinical history (read/search) ---
+  {
+    resourceType: 'Condition',
+    id: 'cf-cond-1',
+    clinicalStatus: { coding: [{ system: CONDITION_CLINICAL, code: 'active' }] },
+    code: concept(SCT, '44054006', 'Diabetes mellitus type 2 (disorder)'),
+    subject: { reference: 'Patient/cf-pat-1' },
+    onsetDateTime: '2019-03-02',
+  },
+  {
+    resourceType: 'Condition',
+    id: 'cf-cond-2',
+    clinicalStatus: { coding: [{ system: CONDITION_CLINICAL, code: 'resolved' }] },
+    code: concept(SCT, '444814009', 'Viral sinusitis (disorder)'),
+    subject: { reference: 'Patient/cf-pat-1' },
+    onsetDateTime: '2024-01-10',
+    abatementDateTime: '2024-01-24',
+  },
+  {
+    resourceType: 'Condition',
+    id: 'cf-cond-3',
+    clinicalStatus: { coding: [{ system: CONDITION_CLINICAL, code: 'active' }] },
+    code: concept(SCT, '38341003', 'Hypertension (disorder)'),
+    subject: { reference: 'Patient/cf-pat-2' },
+    onsetDateTime: '2015-06-01',
+  },
+  {
+    resourceType: 'AllergyIntolerance',
+    id: 'cf-alg-1',
+    clinicalStatus: { coding: [{ system: ALLERGY_CLINICAL, code: 'active' }] },
+    type: 'allergy',
+    category: ['food'],
+    code: concept(SCT, '91935009', 'Allergy to peanuts'),
+    patient: { reference: 'Patient/cf-pat-1' },
+    recordedDate: '1990-06-25',
+    reaction: [{ manifestation: [concept(SCT, '247472004', 'Wheal (finding)')], severity: 'mild' }],
+  },
+  {
+    resourceType: 'MedicationRequest',
+    id: 'cf-med-1',
+    status: 'active',
+    intent: 'order',
+    medicationCodeableConcept: concept(RXNORM, '860975', 'metformin 500 MG Extended Release Oral Tablet'),
+    subject: { reference: 'Patient/cf-pat-1' },
+    authoredOn: '2030-01-10T15:00:00Z',
+  },
+  {
+    resourceType: 'MedicationRequest',
+    id: 'cf-med-2',
+    status: 'completed',
+    intent: 'order',
+    medicationCodeableConcept: concept(RXNORM, '313782', 'Acetaminophen 325 MG Oral Tablet'),
+    subject: { reference: 'Patient/cf-pat-1' },
+    authoredOn: '2029-06-01T15:00:00Z',
+  },
+  {
+    resourceType: 'Observation',
+    id: 'cf-obs-1',
+    status: 'final',
+    category: category('vital-signs', 'Vital signs'),
+    code: concept(LOINC, '8867-4', 'Heart rate'),
+    subject: { reference: 'Patient/cf-pat-1' },
+    effectiveDateTime: '2030-01-15T15:05:00Z',
+    valueQuantity: quantity(72, '/min'),
+  },
+  {
+    resourceType: 'Observation',
+    id: 'cf-obs-2',
+    status: 'final',
+    category: category('laboratory', 'Laboratory'),
+    code: concept(LOINC, '2339-0', 'Glucose [Mass/volume] in Blood'),
+    subject: { reference: 'Patient/cf-pat-1' },
+    effectiveDateTime: '2030-01-16T15:00:00Z',
+    valueQuantity: quantity(95, 'mg/dL'),
+  },
+  {
+    resourceType: 'Observation',
+    id: 'cf-obs-3',
+    status: 'final',
+    category: category('vital-signs', 'Vital signs'),
+    code: concept(LOINC, '85354-9', 'Blood pressure panel with all children optional'),
+    subject: { reference: 'Patient/cf-pat-2' },
+    effectiveDateTime: '2030-01-15T17:05:00Z',
+    component: [
+      { code: concept(LOINC, '8462-4', 'Diastolic Blood Pressure'), valueQuantity: quantity(80, 'mm[Hg]') },
+      { code: concept(LOINC, '8480-6', 'Systolic Blood Pressure'), valueQuantity: quantity(120, 'mm[Hg]') },
+    ],
+  },
 ];
 
 /** Search params the app relies on. Every provider must declare and honour these. */
@@ -121,6 +219,10 @@ export const REQUIRED_SEARCH_PARAMS: Record<Exclude<InScopeType, 'Organization'>
   Appointment: ['patient', 'practitioner', 'actor', 'date', 'status'],
   Encounter: ['patient', 'subject', 'appointment', 'date'],
   DocumentReference: ['patient', 'subject', 'encounter'],
+  Condition: ['patient', 'subject', 'clinical-status'],
+  AllergyIntolerance: ['patient'], // R4 defines no `subject` param on AllergyIntolerance
+  MedicationRequest: ['patient', 'subject', 'status'],
+  Observation: ['patient', 'subject', 'category', 'code', 'date'],
 };
 
 /** [query, expected ids]. Covers every required param at least once. */
@@ -157,4 +259,22 @@ export const SEARCH_CASES: [string, string[]][] = [
   ['DocumentReference?patient=cf-pat-1', ['cf-doc-1']],
   ['DocumentReference?subject=Patient/cf-pat-1', ['cf-doc-1']],
   ['DocumentReference?encounter=cf-enc-1', ['cf-doc-1']],
+  ['Condition?patient=cf-pat-1', ['cf-cond-1', 'cf-cond-2']],
+  ['Condition?subject=Patient/cf-pat-2', ['cf-cond-3']],
+  ['Condition?patient=cf-pat-1&clinical-status=active', ['cf-cond-1']],
+  [`Condition?patient=cf-pat-1&clinical-status=${encodeURIComponent(`${CONDITION_CLINICAL}|resolved`)}`, ['cf-cond-2']],
+  ['AllergyIntolerance?patient=cf-pat-1', ['cf-alg-1']],
+  ['AllergyIntolerance?patient=Patient/cf-pat-2', []],
+  ['MedicationRequest?patient=cf-pat-1', ['cf-med-1', 'cf-med-2']],
+  ['MedicationRequest?subject=Patient/cf-pat-1&status=active', ['cf-med-1']],
+  ['MedicationRequest?patient=cf-pat-1&status=completed,stopped', ['cf-med-2']],
+  ['Observation?patient=cf-pat-1', ['cf-obs-1', 'cf-obs-2']],
+  ['Observation?subject=Patient/cf-pat-2', ['cf-obs-3']],
+  ['Observation?patient=cf-pat-1&category=vital-signs', ['cf-obs-1']],
+  ['Observation?patient=cf-pat-1&category=vital-signs,laboratory', ['cf-obs-1', 'cf-obs-2']],
+  [`Observation?patient=cf-pat-1&code=${encodeURIComponent(`${LOINC}|2339-0`)}`, ['cf-obs-2']],
+  ['Observation?patient=cf-pat-1&code=8867-4', ['cf-obs-1']],
+  ['Observation?patient=cf-pat-2&code=85354-9', ['cf-obs-3']],
+  ['Observation?patient=cf-pat-1&date=2030-01-16', ['cf-obs-2']],
+  ['Observation?patient=cf-pat-1&date=lt2030-01-16&category=vital-signs', ['cf-obs-1']],
 ];

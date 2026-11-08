@@ -28,6 +28,10 @@ export const MOCK_INTERACTIONS: Record<InScopeType, Interaction[]> = {
   Appointment: ['read', 'search-type'],
   Encounter: ['read', 'search-type', 'create', 'update'],
   DocumentReference: ['read', 'search-type', 'create'],
+  Condition: ['read', 'search-type'],
+  AllergyIntolerance: ['read', 'search-type'],
+  MedicationRequest: ['read', 'search-type'],
+  Observation: ['read', 'search-type'],
 };
 
 /** Synthetic data in Supabase (fhir_resources), scoped to one clinic. */

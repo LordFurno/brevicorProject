@@ -26,6 +26,11 @@ export const IN_SCOPE_TYPES = [
   'Appointment',
   'Encounter',
   'DocumentReference',
+  // Clinical history (read/search only in the contract).
+  'Condition',
+  'AllergyIntolerance',
+  'MedicationRequest',
+  'Observation',
 ] as const;
 
 export type InScopeType = (typeof IN_SCOPE_TYPES)[number];

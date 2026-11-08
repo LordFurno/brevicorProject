@@ -1,5 +1,5 @@
 {
-  "note": "every field present; accents preserved; cell + home phones + email",
+  "note": "every field present; accents preserved; cell + home phones + email; Ontario HCN with version code",
   "resourceType": "Patient",
   "vendor": {
     "patientNo": "pat-100",
@@ -18,7 +18,9 @@
     "city": "Ottawa",
     "province": "ON",
     "postalCode": "K1A 0A9",
-    "deceasedDate": null
+    "deceasedDate": null,
+    "healthCardNo": "2345678905",
+    "healthCardVersion": "AB"
   },
   "expected": {
     "resourceType": "Patient",
@@ -37,6 +39,27 @@
         },
         "system": "https://clinicsoft.example/fhir/sid/chart-no",
         "value": "MRN-100"
+      },
+      {
+        "extension": [
+          {
+            "url": "http://hl7.org/fhir/ca/baseline/StructureDefinition/ext-identifierversion",
+            "valueString": "AB"
+          }
+        ],
+        "use": "official",
+        "type": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/v2-0203",
+              "code": "JHN",
+              "display": "Jurisdictional health number (Canada)"
+            }
+          ],
+          "text": "Ontario health card number"
+        },
+        "system": "https://fhir.infoway-inforoute.ca/NamingSystem/ca-on-patient-hcn",
+        "value": "2345678905"
       }
     ],
     "name": [

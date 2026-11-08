@@ -26,7 +26,7 @@ const statement: CapabilityStatement = {
           ],
         },
         { type: 'Encounter', interaction: [{ code: 'read' }, { code: 'update' }] },
-        { type: 'Observation', interaction: [{ code: 'read' }] },
+        { type: 'ImagingStudy', interaction: [{ code: 'read' }] }, // not a gateway type
         { type: 'Appointment', interaction: [{ code: 'delete' }] },
       ],
     },

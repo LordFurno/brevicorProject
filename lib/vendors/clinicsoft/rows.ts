@@ -27,6 +27,8 @@ export interface ClinicSoftPatient {
   province: string | null;
   postalCode: string | null;
   deceasedDate: string | null; // DD/MM/YYYY
+  healthCardNo?: string | null; // 10 digits
+  healthCardVersion?: string | null; // 2 letters
 }
 
 export interface ClinicSoftProvider {
@@ -88,6 +90,65 @@ export interface ClinicSoftDocument {
   mimeType: string;
   createdAt: string | null; // local YYYY-MM-DD HH:MM:SS
   body: string; // base64
+}
+
+export interface ClinicSoftProblem {
+  problemId: string;
+  patientNo: string;
+  encounterNo: string | null;
+  onsetDate: string; // YYYY-MM-DD
+  resolvedDate: string | null;
+  status: 'A' | 'R';
+  snomedCode: string;
+  description: string;
+}
+
+export type AllergySeverity = 'MILD' | 'MOD' | 'SEV';
+
+export interface ClinicSoftAllergy {
+  allergyId: string;
+  patientNo: string;
+  encounterNo: string | null;
+  onsetDate: string; // YYYY-MM-DD
+  endDate: string | null;
+  status: 'A' | 'I';
+  allergenCode: string;
+  allergen: string;
+  allergyType: 'ALLERGY' | 'INTOLERANCE' | null;
+  category: 'FOOD' | 'DRUG' | 'ENV' | 'BIO' | null;
+  reaction1Code: string | null;
+  reaction1: string | null;
+  severity1: AllergySeverity | null;
+  reaction2Code: string | null;
+  reaction2: string | null;
+  severity2: AllergySeverity | null;
+}
+
+export interface ClinicSoftPrescription {
+  rxId: string;
+  patientNo: string;
+  encounterNo: string | null;
+  startDateTime: string; // local YYYY-MM-DD HH:MM:SS
+  stopDateTime: string | null;
+  status: 'A' | 'C';
+  rxnormCode: string;
+  drugName: string;
+  sig: string | null;
+  reasonCode: string | null;
+  reasonDesc: string | null;
+}
+
+export interface ClinicSoftResult {
+  resultId: string;
+  patientNo: string;
+  encounterNo: string | null;
+  resultDateTime: string; // local YYYY-MM-DD HH:MM:SS
+  category: 'VS' | 'LAB';
+  testCode: string; // LOINC
+  testName: string;
+  value: string | null; // '117/74' for blood pressure
+  units: string | null;
+  valueType: 'N' | 'T' | 'BP';
 }
 
 type WithPractice<T> = T & { practice_id: string };

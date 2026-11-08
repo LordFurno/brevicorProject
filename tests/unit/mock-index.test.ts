@@ -192,3 +192,43 @@ describe('search semantics end to end (extract + compile)', () => {
     expect(search(type, params)).toEqual(expected);
   });
 });
+
+describe('clinical history columns', () => {
+  const observation: FhirResource = {
+    resourceType: 'Observation',
+    id: 'o1',
+    status: 'final',
+    category: [{ coding: [{ system: 'http://terminology.hl7.org/CodeSystem/observation-category', code: 'vital-signs' }] }],
+    code: { coding: [{ system: 'http://loinc.org', code: '8867-4' }] },
+    subject: { reference: 'Patient/p1' },
+    effectiveDateTime: '2026-11-07T15:00:00Z',
+  };
+
+  it('indexes CodeableConcepts with and without system, and effective[x] as the date', () => {
+    const cols = extractSearchColumns(observation, TZ);
+    expect(cols.tokens).toEqual(
+      expect.arrayContaining([
+        'category:vital-signs',
+        'category:http://terminology.hl7.org/CodeSystem/observation-category|vital-signs',
+        'code:8867-4',
+        'code:http://loinc.org|8867-4',
+      ]),
+    );
+    expect(cols.refs).toEqual(['subject:Patient/p1', 'patient:Patient/p1']);
+    expect(cols.date_lo).toBe('2026-11-07T15:00:00.000Z');
+  });
+
+  it('compiles concept tokens: bare code, system|code, and |code', () => {
+    expect(compileSearch('Observation', [['code', 'http://loinc.org|8867-4,1234-5']], TZ)).toEqual([
+      { column: 'tokens', anyOf: ['code:http://loinc.org|8867-4', 'code:1234-5'] },
+    ]);
+    expect(compileSearch('Condition', [['clinical-status', '|active']], TZ)).toEqual([
+      { column: 'tokens', anyOf: ['clinical-status:|active'] },
+    ]);
+  });
+
+  it('AllergyIntolerance has patient but no subject param (R4)', () => {
+    expect(compileSearch('AllergyIntolerance', [['patient', 'p1']], TZ)).toEqual([{ column: 'refs', anyOf: ['patient:Patient/p1'] }]);
+    expect(() => compileSearch('AllergyIntolerance', [['subject', 'p1']], TZ)).toThrow(FhirError);
+  });
+});

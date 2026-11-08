@@ -1,0 +1,42 @@
+{
+  "note": "C -> completed; sig -> dosageInstruction text; summer time (EDT)",
+  "resourceType": "MedicationRequest",
+  "vendor": {
+    "rxId": "rx-2",
+    "patientNo": "pat-100",
+    "encounterNo": null,
+    "startDateTime": "2025-07-01 08:00:00",
+    "stopDateTime": "2025-07-11 08:00:00",
+    "status": "C",
+    "rxnormCode": "313782",
+    "drugName": "Acetaminophen 325 MG Oral Tablet",
+    "sig": "Take as needed.",
+    "reasonCode": null,
+    "reasonDesc": null
+  },
+  "expected": {
+    "resourceType": "MedicationRequest",
+    "id": "rx-2",
+    "status": "completed",
+    "intent": "order",
+    "medicationCodeableConcept": {
+      "coding": [
+        {
+          "system": "http://www.nlm.nih.gov/research/umls/rxnorm",
+          "code": "313782",
+          "display": "Acetaminophen 325 MG Oral Tablet"
+        }
+      ],
+      "text": "Acetaminophen 325 MG Oral Tablet"
+    },
+    "subject": {
+      "reference": "Patient/pat-100"
+    },
+    "authoredOn": "2025-07-01T12:00:00Z",
+    "dosageInstruction": [
+      {
+        "text": "Take as needed."
+      }
+    ]
+  }
+}

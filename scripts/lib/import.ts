@@ -7,8 +7,10 @@ import { fail, upsertRows } from './cli';
 import {
   emptyStats,
   indexProviderBundles,
+  defaultCaps,
   isProviderFile,
   transformPatientBundle,
+  type ClinicalCaps,
   transformProviderResources,
   type TransformStats,
 } from './synthea';
@@ -25,6 +27,7 @@ export async function importSynthea(
   clinicId: string,
   dir: string,
   maxEncounters = DEFAULT_MAX_ENCOUNTERS,
+  caps: ClinicalCaps = defaultCaps(),
 ): Promise<TransformStats> {
   let files: string[];
   try {
@@ -59,7 +62,7 @@ export async function importSynthea(
   await add(transformProviderResources(index, stats).map((r) => toRow(clinicId, r, 1, now)));
   for (const [i, file] of patientFiles.entries()) {
     const bundle = await readBundle(join(dir, file));
-    await add(transformPatientBundle(bundle, index, maxEncounters, stats).map((r) => toRow(clinicId, r, 1, now)));
+    await add(transformPatientBundle(bundle, index, maxEncounters, stats, caps).map((r) => toRow(clinicId, r, 1, now)));
     if ((i + 1) % 25 === 0) console.log(`  ${i + 1}/${patientFiles.length} patient bundles`);
   }
   await flush();
@@ -77,7 +80,10 @@ export function printStats(stats: TransformStats): void {
     .map(([type, n]) => `${type}=${n}`)
     .join(' ');
   console.log(`imported: ${kept}`);
+  const capped = Object.entries(stats.droppedByCap)
+    .map(([type, n]) => `${type}=${n}`)
+    .join(' ');
   console.log(
-    `encounters dropped (cap): ${stats.droppedEncounters}; references to non-imported resources made logical: ${stats.unresolvedReferences}; invalid skipped: ${stats.invalid}`,
+    `encounters dropped (cap): ${stats.droppedEncounters}; clinical dropped (caps): ${capped || 'none'}; references to non-imported resources made logical: ${stats.unresolvedReferences}; invalid skipped: ${stats.invalid}`,
   );
 }
