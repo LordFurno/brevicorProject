@@ -1,20 +1,27 @@
 import { mapChart, type ClinicalResource } from './map';
 import type { ClinicalDataSource, PatientLookup } from './types';
 
-// Reads the chart from the team's FHIR R4 gateway (/api/fhir/R4).
-// Auth: Bearer FHIR_API_KEY. The gateway derives the tenant from the key —
-// we never send a tenant header (see root CLAUDE.md).
+// Reads the chart from the team's FHIR R4 gateway (/api/fhir/R4). Contract: docs/fhir-contract.md.
+//
+// Clinic selection: the gateway currently takes an `X-Clinic-Id` header
+// (temporary, per the contract). When the gateway switches to token auth,
+// set FHIR_API_KEY and drop FHIR_CLINIC_ID; nothing else changes.
+// Note: the gateway rejects unknown params (e.g. _sort) with 400, so we sort client-side in map.ts.
 
 function cfg() {
   const base = process.env.FHIR_BASE_URL?.replace(/\/$/, '');
   if (!base) throw new Error('FHIR_BASE_URL is not set');
-  return { base, key: process.env.FHIR_API_KEY };
+  return { base, key: process.env.FHIR_API_KEY, clinicId: process.env.FHIR_CLINIC_ID };
 }
 
 async function search<T extends ClinicalResource>(query: string): Promise<T[]> {
-  const { base, key } = cfg();
+  const { base, key, clinicId } = cfg();
   const res = await fetch(`${base}/${query}`, {
-    headers: { Accept: 'application/fhir+json', ...(key ? { Authorization: `Bearer ${key}` } : {}) },
+    headers: {
+      Accept: 'application/fhir+json',
+      ...(clinicId ? { 'X-Clinic-Id': clinicId } : {}),
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
     cache: 'no-store',
   });
   // Never put the URL in the error — it contains identifiers.
@@ -60,8 +67,9 @@ export const fhirSource: ClinicalDataSource = {
       safe<fhir4.Condition>(`Condition?patient=${ref}`),
       safe<fhir4.AllergyIntolerance>(`AllergyIntolerance?patient=${ref}`),
       safe<fhir4.MedicationStatement>(`MedicationStatement?patient=${ref}`),
-      safe<fhir4.Observation>(`Observation?patient=${ref}&_sort=-date&_count=50`),
-      safe<fhir4.Encounter>(`Encounter?patient=${ref}&_sort=-date&_count=10`),
+      // Not in the gateway's guaranteed set yet — empty sections if unsupported.
+      safe<fhir4.Observation>(`Observation?patient=${ref}&_count=100`),
+      safe<fhir4.Encounter>(`Encounter?patient=${ref}&_count=20`),
       safe<fhir4.DocumentReference>(`DocumentReference?patient=${ref}&_count=20`),
     ]);
 

@@ -2,6 +2,8 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // This app is self-contained in apps/web; the repo root is the separate FHIR gateway app.
+  outputFileTracingRoot: process.cwd(),
   serverExternalPackages: ['twilio'],
   async headers() {
     return [
