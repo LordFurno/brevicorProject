@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { bookingEnabled } from '@/lib/booking';
 import { Armchair, ArrowRight, CalendarCheck, Link2, ShieldCheck, Stethoscope, Video } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { buttonClasses } from '@/components/ui';
@@ -33,13 +34,12 @@ export default function Home() {
             Your doctor, <span className="text-brand-600">one link away.</span>
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-lg text-pretty text-slate-600">
-            Book a video visit with your clinic in under a minute. Then wait comfortably in a virtual waiting room until your
-            doctor calls you in.
+            Open the private visit link from your clinic, verify your date of birth, and wait comfortably until your doctor calls you in.
           </p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Link href="/book" className={buttonClasses('primary', 'lg', 'w-full sm:w-auto')}>
+            {bookingEnabled() && <Link href="/book" className={buttonClasses('primary', 'lg', 'w-full sm:w-auto')}>
               <Video /> Book a virtual visit <ArrowRight />
-            </Link>
+            </Link>}
             <Link href="/doctor/login" className={buttonClasses('secondary', 'lg', 'w-full sm:w-auto')}>
               I’m a physician
             </Link>

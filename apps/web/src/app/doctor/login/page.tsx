@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { LoginForm } from '@/components/doctor/login-form';
 import { Logo } from '@/components/logo';
 import { getDoctor, isDemoLoginAllowed, isSupabaseAuth } from '@/lib/auth/doctor';
-import { DEMO_PASSWORD, drName, getClinic, practitioners } from '@/lib/directory';
+
 
 export const metadata: Metadata = { title: 'Physician sign in' };
 export const dynamic = 'force-dynamic';
@@ -14,10 +14,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const safeNext = next && next.startsWith('/doctor') && !next.startsWith('//') ? next : '/doctor';
   if (await getDoctor()) redirect(safeNext);
 
-  const demo = isDemoLoginAllowed();
-  const demoAccounts = demo
-    ? practitioners.map((p) => ({ email: p.email, label: `${drName(p)} · ${getClinic(p.clinicId)?.name ?? ''}` }))
-    : [];
+  const demo = false; const demoAccounts: { email: string; label: string }[] = [];
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-2">
@@ -48,7 +45,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <LoginForm
             next={safeNext}
             demoAccounts={demoAccounts}
-            demoPassword={demo ? DEMO_PASSWORD : undefined}
+            demoPassword={undefined}
             unavailable={!demo && !isSupabaseAuth()}
           />
         </div>

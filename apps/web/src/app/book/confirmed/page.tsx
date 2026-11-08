@@ -1,3 +1,4 @@
+import { bookingEnabled } from '@/lib/booking';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -8,7 +9,7 @@ import { Logo } from '@/components/logo';
 import { Avatar, buttonClasses, Card } from '@/components/ui';
 import { drName, getClinic, getPractitioner } from '@/lib/directory';
 import { CLINIC_TZ_LABEL, formatDateLong, formatTime } from '@/lib/time';
-import { getVisitStore } from '@/lib/visits/store';
+import { getVisitStore } from '@/lib/visits/booking-store';
 
 export const metadata: Metadata = { title: 'Visit booked', robots: { index: false } };
 export const dynamic = 'force-dynamic';
@@ -18,13 +19,13 @@ function icsDate(iso: string) {
 }
 
 export default async function ConfirmedPage({ searchParams }: { searchParams: Promise<{ t?: string }> }) {
-  const { t } = await searchParams;
+  if (!bookingEnabled()) notFound(); const { t } = await searchParams;
   const visit = t ? await getVisitStore().getByToken(t) : null;
   if (!visit) notFound();
   const practitioner = getPractitioner(visit.practitionerId)!;
   const clinic = getClinic(visit.clinicId)!;
   const firstName = visit.patient.name.split(' ')[0];
-  const path = `/visit/${visit.inviteToken}`;
+  const path = `/book/visit/${visit.inviteToken}`;
 
   const h = await headers();
   const origin = `${h.get('x-forwarded-proto') ?? 'http'}://${h.get('host') ?? 'localhost:3000'}`;
@@ -72,7 +73,7 @@ export default async function ConfirmedPage({ searchParams }: { searchParams: Pr
               <CopyLink path={path} />
               <p className="mt-2 flex items-start gap-1.5 text-xs text-slate-500">
                 <Mail className="mt-px size-3.5 shrink-0" />
-                We’ll also send this to {visit.patient.email ? 'your email' : 'your phone'}. Keep it private — it’s your key to the visit.
+                Keep this link private. This development booking stays in this server’s memory; no message is sent.
               </p>
             </div>
 

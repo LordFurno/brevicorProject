@@ -1,3 +1,4 @@
+import type * as fhir4 from 'fhir/r4';
 import type { ChartSummary } from './types';
 
 // FHIR R4 → ChartSummary. Used by BOTH the mock and the real FHIR gateway

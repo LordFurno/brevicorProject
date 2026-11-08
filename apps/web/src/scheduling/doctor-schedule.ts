@@ -1,5 +1,5 @@
 import { addDays, ymdInTz, zonedDate } from '@/lib/time';
-import type { Practitioner } from '@/lib/directory';
+type Practitioner = { id: string; clinicId: string; ref?: string };
 import { hasEarlyArrival } from './doctor-view';
 import { getVisitStore } from '@/lib/visits/store';
 import { listDayForPractitioner, listUpcomingForPractitioner } from '@/lib/visits/service';
@@ -11,7 +11,7 @@ export async function loadDoctorSchedule(practitioner: Practitioner, now = Date.
   const [current, upcoming, previous] = await Promise.all([
     listDayForPractitioner(practitioner, today),
     listUpcomingForPractitioner(practitioner, today),
-    getVisitStore().list({ clinicId: practitioner.clinicId, practitionerId: practitioner.id,
+    getVisitStore().list({ clinicId: practitioner.clinicId, practitionerRef: practitioner.ref ?? `Practitioner/${practitioner.id}`,
       from: zonedDate(addDays(today, -1), 0).toISOString(), to: zonedDate(today, 0).toISOString() }),
   ]);
   const active = previous.filter((v) => v.status === 'waiting' || v.status === 'in_progress');

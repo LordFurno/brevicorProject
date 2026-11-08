@@ -1,3 +1,4 @@
+import type * as fhir4 from 'fhir/r4';
 import { mapChart, type ClinicalResource, type FhirChartBundle } from './map';
 import { mockResources, samplePatientResources } from './mock-data';
 import type { ClinicalDataSource, PatientLookup } from './types';

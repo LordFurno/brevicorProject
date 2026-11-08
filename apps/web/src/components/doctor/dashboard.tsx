@@ -21,7 +21,14 @@ import {
 import { Logo } from '@/components/logo';
 import { Avatar, Badge, Button, Card } from '@/components/ui';
 import { useNow } from '@/components/use-now';
-import { formatDateLong, formatDateShort, formatTime, formatWait, minutesInTz, ymdInTz } from '@/lib/time';
+import {
+  formatDateLong,
+  formatDateShort,
+  formatTime,
+  formatWait,
+  minutesInTz,
+  ymdInTz,
+} from '@/lib/time';
 import type { DoctorScheduleView as DoctorVisitView } from '@/scheduling/doctor-view';
 
 interface DoctorInfo {
@@ -58,14 +65,20 @@ export function DoctorDashboard({
   initialVisits,
   initialUpcoming,
   demoMode,
+  clinics,
+  clinicId,
+  syncError,
 }: {
   doctor: DoctorInfo;
   clinicName: string;
   initialVisits: DoctorVisitView[];
   initialUpcoming: DoctorVisitView[];
   demoMode: boolean;
+  clinics: { id: string; name: string }[];
+  clinicId: string;
+  syncError?: string;
 }) {
-  const [loadError, setLoadError] = useState('');
+  const [loadError, setLoadError] = useState(syncError ?? '');
   const [pollRevision, setPollRevision] = useState(0);
   const router = useRouter();
   const now = useNow(15_000);
@@ -82,7 +95,16 @@ export function DoctorDashboard({
     setAlerts(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   }, []);
 
-  // Live waiting room (polling keeps it provider-agnostic; swap for Supabase Realtime later).
+  useEffect(() => {
+    const beat = () => {
+      void fetch('/api/doctor/presence', { method: 'POST' }).catch(() => null);
+    };
+    beat();
+    const timer = setInterval(beat, 30000);
+    return () => clearInterval(timer);
+  }, [clinicId]);
+
+  // Poll the shared database; no visit state is cached in this server process.
   useEffect(() => {
     let stopped = false;
     const abort = new AbortController();
@@ -91,34 +113,53 @@ export function DoctorDashboard({
       if (loading || stopped) return;
       loading = true;
       try {
-      const r = await fetch('/api/doctor/visits', { cache: 'no-store', signal: abort.signal });
-      if (stopped) return;
-      if (r.status === 401) return router.replace('/doctor/login');
-      if (!r.ok) throw new Error('Waiting room could not refresh. Your last loaded list is still shown.');
-      const { visits: next, upcoming: nextUpcoming } = (await r.json()) as { visits: DoctorVisitView[]; upcoming: DoctorVisitView[] };
-      if (stopped) return;
-      if (!Array.isArray(next) || !Array.isArray(nextUpcoming)) throw new Error('The waiting room returned an invalid response. Please retry.');
-      setLoadError('');
-      setVisits(next);
-      setUpcoming(nextUpcoming);
-      // Highlight bookings that arrived since the page loaded.
-      const added = [...next, ...nextUpcoming].filter((v) => !known.current.has(v.id)).map((v) => v.id);
-      if (added.length) {
-        added.forEach((id) => known.current.add(id));
-        setFresh((f) => new Set([...f, ...added]));
-      }
-      const arrived = next.filter((v) => v.present && !seen.current.has(v.id));
-      if (arrived.length) {
-        chime();
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
-          // No patient-identifying info in notifications.
-          new Notification('A patient has arrived', { body: 'Someone is waiting in your virtual waiting room.', tag: 'brevicor-arrival' });
+        const r = await fetch('/api/doctor/visits', { cache: 'no-store', signal: abort.signal });
+        if (stopped) return;
+        if (r.status === 401) return router.replace('/doctor/login');
+        if (!r.ok)
+          throw new Error('Waiting room could not refresh. Your last loaded list is still shown.');
+        const { visits: next, upcoming: nextUpcoming } = (await r.json()) as {
+          visits: DoctorVisitView[];
+          upcoming: DoctorVisitView[];
+        };
+        if (stopped) return;
+        if (!Array.isArray(next) || !Array.isArray(nextUpcoming))
+          throw new Error('The waiting room returned an invalid response. Please retry.');
+        setLoadError('');
+        setVisits(next);
+        setUpcoming(nextUpcoming);
+        // Highlight bookings that arrived since the page loaded.
+        const added = [...next, ...nextUpcoming]
+          .filter((v) => !known.current.has(v.id))
+          .map((v) => v.id);
+        if (added.length) {
+          added.forEach((id) => known.current.add(id));
+          setFresh((f) => new Set([...f, ...added]));
         }
-      }
-      seen.current = new Set(next.filter((v) => v.present).map((v) => v.id));
+        const arrived = next.filter((v) => v.present && !seen.current.has(v.id));
+        if (arrived.length) {
+          chime();
+          if (
+            typeof Notification !== 'undefined' &&
+            Notification.permission === 'granted' &&
+            document.hidden
+          ) {
+            // No patient-identifying info in notifications.
+            new Notification('A patient has arrived', {
+              body: 'Someone is waiting in your virtual waiting room.',
+              tag: 'brevicor-arrival',
+            });
+          }
+        }
+        seen.current = new Set(next.filter((v) => v.present).map((v) => v.id));
       } catch (e) {
-        if (!stopped) setLoadError(e instanceof Error ? e.message : 'Waiting room could not refresh. Please retry.');
-      } finally { loading = false; }
+        if (!stopped)
+          setLoadError(
+            e instanceof Error ? e.message : 'Waiting room could not refresh. Please retry.',
+          );
+      } finally {
+        loading = false;
+      }
     };
     void load();
     window.addEventListener('focus', load);
@@ -132,16 +173,23 @@ export function DoctorDashboard({
   }, [router, pollRevision]);
 
   const waiting = useMemo(
-    () => visits.filter((v) => v.status === 'waiting' || v.arrivedEarly).sort((a, b) => Number(b.present) - Number(a.present) || a.start.localeCompare(b.start)),
+    () =>
+      visits
+        .filter((v) => v.status === 'waiting' || v.arrivedEarly)
+        .sort((a, b) => Number(b.present) - Number(a.present) || a.start.localeCompare(b.start)),
     [visits],
   );
   const presentCount = waiting.filter((v) => v.present).length;
   const inProgress = visits.find((v) => v.status === 'in_progress');
   const completed = visits.filter((v) => v.status === 'completed').length;
-  const longestWait = waiting.filter((v) => v.present && v.waitingSince).reduce((m, v) => Math.max(m, now - Date.parse(v.waitingSince!)), 0);
+  const longestWait = waiting
+    .filter((v) => v.present && v.waitingSince)
+    .reduce((m, v) => Math.max(m, now - Date.parse(v.waitingSince!)), 0);
 
   useEffect(() => {
-    document.title = presentCount ? `(${presentCount}) Waiting room · Brevicor` : 'Dashboard · Brevicor';
+    document.title = presentCount
+      ? `(${presentCount}) Waiting room · Brevicor`
+      : 'Dashboard · Brevicor';
   }, [presentCount]);
 
   const hour = Math.floor(minutesInTz(now) / 60);
@@ -155,7 +203,17 @@ export function DoctorDashboard({
   }
 
   async function copyLink(v: DoctorVisitView) {
-    await navigator.clipboard.writeText(`${window.location.origin}${v.invitationPath}`);
+    const response = await fetch(`/api/doctor/visits/${v.id}/invitation`, { method: 'POST' });
+    if (!response.ok) {
+      setLoadError('Could not create a new link. Please retry.');
+      return;
+    }
+    const data = await response.json();
+    try {
+      await navigator.clipboard.writeText(data.link);
+    } catch {
+      window.prompt('Your new visit link (the previous link is revoked):', data.link);
+    }
     setCopied(v.id);
     setTimeout(() => setCopied((c) => (c === v.id ? null : c)), 1800);
   }
@@ -167,7 +225,11 @@ export function DoctorDashboard({
   }
 
   async function resetDemo() {
-    await fetch('/api/dev/reset', { method: 'POST' });
+    const response = await fetch('/api/doctor/sync-visits', { method: 'POST' });
+    if (!response.ok) {
+      setLoadError('Appointments could not sync. Please retry.');
+      return;
+    }
     window.location.reload();
   }
 
@@ -185,8 +247,36 @@ export function DoctorDashboard({
               <p className="text-sm leading-tight font-medium">{doctor.name}</p>
               <p className="text-xs text-slate-500">{doctor.specialty}</p>
             </div>
+            {clinics.length > 1 && (
+              <select
+                aria-label="Clinic"
+                value={clinicId}
+                onChange={async (e) => {
+                  const response = await fetch('/api/doctor/clinic', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clinicId: e.target.value }),
+                  });
+                  if (response.ok) window.location.reload();
+                  else setLoadError('Could not switch clinic.');
+                }}
+                className="max-w-48 rounded-lg border border-slate-200 p-2 text-sm"
+              >
+                {clinics.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.id})
+                  </option>
+                ))}
+              </select>
+            )}
             <Avatar name={doctor.name} color={doctor.color} />
-            <Button variant="ghost" size="sm" onClick={signOut} aria-label="Sign out" title="Sign out">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={signOut}
+              aria-label="Sign out"
+              title="Sign out"
+            >
               <LogOut />
             </Button>
           </div>
@@ -196,13 +286,22 @@ export function DoctorDashboard({
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         <div className="flex flex-wrap items-end justify-between gap-4 animate-fade-in">
           <div>
-            <p className="text-sm text-slate-500" suppressHydrationWarning>{formatDateLong(now)}</p>
-            <h1 className="mt-0.5 text-2xl font-semibold tracking-tight sm:text-3xl" suppressHydrationWarning>
+            <p className="text-sm text-slate-500" suppressHydrationWarning>
+              {formatDateLong(now)}
+            </p>
+            <h1
+              className="mt-0.5 text-2xl font-semibold tracking-tight sm:text-3xl"
+              suppressHydrationWarning
+            >
               {greeting}, {doctor.short}
             </h1>
           </div>
           {alerts === 'default' && (
-            <Button variant="secondary" size="sm" onClick={async () => setAlerts(await Notification.requestPermission())}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={async () => setAlerts(await Notification.requestPermission())}
+            >
               <Bell /> Enable arrival alerts
             </Button>
           )}
@@ -213,8 +312,22 @@ export function DoctorDashboard({
           )}
         </div>
 
-        {loadError && <div role="alert" className="mt-5 flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><span>{loadError}</span><Button variant="secondary" size="sm" onClick={() => setPollRevision((n) => n + 1)}>Retry</Button></div>}
-        <div className="mt-4 flex justify-end"><Button variant="secondary" size="sm" onClick={() => setPollRevision((n) => n + 1)}><RotateCcw /> Refresh waiting room</Button></div>
+        {loadError && (
+          <div
+            role="alert"
+            className="mt-5 flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"
+          >
+            <span>{loadError}</span>
+            <Button variant="secondary" size="sm" onClick={() => setPollRevision((n) => n + 1)}>
+              Retry
+            </Button>
+          </div>
+        )}
+        <div className="mt-4 flex justify-end">
+          <Button variant="secondary" size="sm" onClick={() => setPollRevision((n) => n + 1)}>
+            <RotateCcw /> Refresh waiting room
+          </Button>
+        </div>
 
         {inProgress && (
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-900 px-5 py-4 text-white animate-fade-in">
@@ -224,7 +337,8 @@ export function DoctorDashboard({
                 <span className="relative inline-flex size-2.5 rounded-full bg-rose-500" />
               </span>
               <p className="text-sm">
-                You’re in a consultation with <span className="font-semibold">{inProgress.patientName}</span>
+                You’re in a consultation with{' '}
+                <span className="font-semibold">{inProgress.patientName}</span>
               </p>
             </div>
             <Button size="sm" onClick={() => router.push(`/doctor/consult/${inProgress.id}`)}>
@@ -234,10 +348,27 @@ export function DoctorDashboard({
         )}
 
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile icon={<CalendarDays />} label="Appointments today" value={String(visits.filter((v) => v.status !== 'cancelled' && ymdInTz(v.start) === ymdInTz(now)).length)} />
-          <StatTile icon={<Users />} label="In waiting room" value={String(presentCount)} highlight={presentCount > 0} />
+          <StatTile
+            icon={<CalendarDays />}
+            label="Appointments today"
+            value={String(
+              visits.filter((v) => v.status !== 'cancelled' && ymdInTz(v.start) === ymdInTz(now))
+                .length,
+            )}
+          />
+          <StatTile
+            icon={<Users />}
+            label="In waiting room"
+            value={String(presentCount)}
+            highlight={presentCount > 0}
+          />
           <StatTile icon={<CircleCheck />} label="Seen today" value={String(completed)} />
-          <StatTile icon={<Hourglass />} label="Longest wait" value={presentCount ? formatWait(longestWait) : '—'} warn={longestWait > 15 * 60_000} />
+          <StatTile
+            icon={<Hourglass />}
+            label="Longest wait"
+            value={presentCount ? formatWait(longestWait) : '—'}
+            warn={longestWait > 15 * 60_000}
+          />
         </div>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
@@ -259,7 +390,10 @@ export function DoctorDashboard({
                   <Armchair className="size-6" />
                 </span>
                 <p className="mt-4 font-medium">No one’s waiting yet</p>
-                <p className="mt-1 max-w-xs text-sm text-slate-500">Patients appear here the moment they check in. You’ll hear a chime when someone arrives.</p>
+                <p className="mt-1 max-w-xs text-sm text-slate-500">
+                  Patients appear here the moment they check in. You’ll hear a chime when someone
+                  arrives.
+                </p>
               </div>
             ) : (
               <ul className="space-y-2 p-3">
@@ -270,7 +404,9 @@ export function DoctorDashboard({
                       key={v.id}
                       className={clsx(
                         'flex items-start gap-3 rounded-xl border p-3.5 transition animate-fade-in',
-                        v.present ? 'border-slate-200 hover:border-brand-200 hover:bg-brand-50/30' : 'border-dashed border-slate-200 opacity-70',
+                        v.present
+                          ? 'border-slate-200 hover:border-brand-200 hover:bg-brand-50/30'
+                          : 'border-dashed border-slate-200 opacity-70',
                       )}
                     >
                       <Avatar name={v.patientName} />
@@ -281,12 +417,30 @@ export function DoctorDashboard({
                           {!v.present && <Badge tone="amber">Stepped away</Badge>}
                         </div>
                         <p className="mt-0.5 text-xs text-slate-500" suppressHydrationWarning>
-                          Booked {ymdInTz(v.start) !== ymdInTz(now) ? `${formatDateShort(v.start)} ` : ''}{formatTime(v.start)} ·{' '}
-                          <span className={clsx(waited > 15 * 60_000 && 'font-medium text-amber-600')}>{v.arrivedEarly ? 'Online before check-in opens' : `waiting ${formatWait(waited)}`}</span>
+                          Booked{' '}
+                          {ymdInTz(v.start) !== ymdInTz(now) ? `${formatDateShort(v.start)} ` : ''}
+                          {formatTime(v.start)} ·{' '}
+                          <span
+                            className={clsx(waited > 15 * 60_000 && 'font-medium text-amber-600')}
+                          >
+                            {v.arrivedEarly
+                              ? 'Online before check-in opens'
+                              : `waiting ${formatWait(waited)}`}
+                          </span>
                         </p>
                         <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">{v.reason}</p>
                       </div>
-                      <Button size="sm" onClick={() => callIn(v.id)} loading={admitting === v.id} disabled={!!admitting || !v.present}>
+                      <Button
+                        size="sm"
+                        title={
+                          v.modality === 'phone'
+                            ? 'Call through your clinic phone system'
+                            : undefined
+                        }
+                        onClick={() => callIn(v.id)}
+                        loading={admitting === v.id}
+                        disabled={!!admitting || !v.present || v.modality === 'phone'}
+                      >
                         <Video /> Call in
                       </Button>
                     </li>
@@ -303,20 +457,31 @@ export function DoctorDashboard({
               <span className="text-xs text-slate-500">{visits.length} visits</span>
             </div>
             {visits.length === 0 ? (
-              <p className="px-5 py-16 text-center text-sm text-slate-500">No video visits scheduled today.</p>
+              <p className="px-5 py-16 text-center text-sm text-slate-500">
+                No video visits scheduled today.
+              </p>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {visits.map((v) => {
                   const past = v.status === 'completed' || v.status === 'cancelled';
                   return (
-                    <li key={v.id} className={clsx('flex items-center gap-4 px-5 py-3.5', past && 'opacity-60')}>
+                    <li
+                      key={v.id}
+                      className={clsx('flex items-center gap-4 px-5 py-3.5', past && 'opacity-60')}
+                    >
                       <div className="w-16 shrink-0 text-right">
                         <p className="text-sm font-semibold tabular-nums">{formatTime(v.start)}</p>
                       </div>
                       <span
                         className={clsx(
                           'h-10 w-1 shrink-0 rounded-full',
-                          v.status === 'in_progress' ? 'bg-sky-500' : v.present ? 'bg-brand-500' : past ? 'bg-slate-200' : 'bg-slate-300',
+                          v.status === 'in_progress'
+                            ? 'bg-sky-500'
+                            : v.present
+                              ? 'bg-brand-500'
+                              : past
+                                ? 'bg-slate-200'
+                                : 'bg-slate-300',
                         )}
                       />
                       <div className="min-w-0 flex-1">
@@ -332,15 +497,23 @@ export function DoctorDashboard({
                           <button
                             type="button"
                             onClick={() => copyLink(v)}
-                            title="Copy patient’s visit link"
-                            aria-label="Copy patient’s visit link"
+                            title="New patient link (revokes the previous link)"
+                            aria-label="New patient link"
                             className="grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                           >
-                            {copied === v.id ? <Check className="size-4 text-brand-600" /> : <Link2 className="size-4" />}
+                            {copied === v.id ? (
+                              <Check className="size-4 text-brand-600" />
+                            ) : (
+                              <Link2 className="size-4" />
+                            )}
                           </button>
                         )}
                         {v.status === 'in_progress' && (
-                          <Button size="sm" variant="secondary" onClick={() => router.push(`/doctor/consult/${v.id}`)}>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => router.push(`/doctor/consult/${v.id}`)}
+                          >
                             Resume
                           </Button>
                         )}
@@ -359,7 +532,9 @@ export function DoctorDashboard({
             <span className="text-xs text-slate-500">Next 14 days</span>
           </div>
           {upcoming.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-slate-500">No upcoming video visits booked.</p>
+            <p className="px-5 py-10 text-center text-sm text-slate-500">
+              No upcoming video visits booked.
+            </p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {upcoming.map((v) => (
@@ -378,11 +553,15 @@ export function DoctorDashboard({
                   <button
                     type="button"
                     onClick={() => copyLink(v)}
-                    title="Copy patient’s visit link"
-                    aria-label="Copy patient’s visit link"
+                    title="New patient link (revokes the previous link)"
+                    aria-label="New patient link"
                     className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                   >
-                    {copied === v.id ? <Check className="size-4 text-brand-600" /> : <Link2 className="size-4" />}
+                    {copied === v.id ? (
+                      <Check className="size-4 text-brand-600" />
+                    ) : (
+                      <Link2 className="size-4" />
+                    )}
                   </button>
                 </li>
               ))}
@@ -390,35 +569,67 @@ export function DoctorDashboard({
           )}
         </Card>
 
-        {demoMode && (
+        {
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-400">
-            <span>Demo mode: physicians are bookable every day, 6 AM–midnight. Tip: copy a patient link (<Link2 className="inline size-3" />) and open it in another tab to join as the patient.</span>
-            <button type="button" onClick={resetDemo} className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-slate-500 hover:bg-slate-100">
-              <RotateCcw className="size-3" /> Reset demo
+            <span>
+              Create a new patient link (<Link2 className="inline size-3" />) to replace an earlier
+              invitation.
+            </span>
+            <button
+              type="button"
+              onClick={resetDemo}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-slate-500 hover:bg-slate-100"
+            >
+              <RotateCcw className="size-3" /> Re-sync appointments
             </button>
           </div>
-        )}
+        }
       </main>
     </div>
   );
 }
 
 function StatusBadge({ v }: { v: DoctorVisitView }) {
+  if (v.modality === 'phone' && v.status === 'scheduled') return <Badge>Phone appointment</Badge>;
   if (v.arrivedEarly) return <Badge tone="amber">Arrived early</Badge>;
   if (v.status === 'in_progress') return <Badge tone="sky">In consultation</Badge>;
   if (v.status === 'completed') return <Badge>Completed</Badge>;
   if (v.status === 'cancelled') return <Badge tone="rose">Cancelled</Badge>;
-  if (v.status === 'waiting') return v.present ? <Badge tone="brand">Waiting</Badge> : <Badge tone="amber">Stepped away</Badge>;
+  if (v.status === 'waiting')
+    return v.present ? (
+      <Badge tone="brand">Waiting</Badge>
+    ) : (
+      <Badge tone="amber">Stepped away</Badge>
+    );
   return <Badge className="hidden sm:inline-flex">Scheduled</Badge>;
 }
 
-function StatTile({ icon, label, value, highlight, warn }: { icon: ReactNode; label: string; value: string; highlight?: boolean; warn?: boolean }) {
+function StatTile({
+  icon,
+  label,
+  value,
+  highlight,
+  warn,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  highlight?: boolean;
+  warn?: boolean;
+}) {
   return (
     <Card className={clsx('p-4 transition', highlight && 'border-brand-200 bg-brand-50/40')}>
       <p className="flex items-center gap-1.5 text-xs text-slate-500 [&_svg]:size-3.5">
         {icon} {label}
       </p>
-      <p className={clsx('mt-1.5 text-2xl font-semibold tracking-tight tabular-nums', warn && 'text-amber-600', highlight && 'text-brand-700')} suppressHydrationWarning>
+      <p
+        className={clsx(
+          'mt-1.5 text-2xl font-semibold tracking-tight tabular-nums',
+          warn && 'text-amber-600',
+          highlight && 'text-brand-700',
+        )}
+        suppressHydrationWarning
+      >
         {value}
       </p>
     </Card>

@@ -23,7 +23,7 @@ export interface ChartSummary {
   visits: { id?: string; date?: string; type?: string; practitioner?: string; reason?: string; summary?: string }[];
 }
 
-export interface PatientLookup {
+export interface PatientLookup { patientRef?: string; accessToken?: string;
   clinicId: string;
   name: string;
   dateOfBirth: string;

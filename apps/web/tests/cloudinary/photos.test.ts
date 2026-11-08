@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Visit } from '../../src/lib/visits/types';
 
 const auth = vi.hoisted(() => ({
   doctor: null as object | null, owns: false, verified: false,
-  visit: { id: 'photo-test-visit', status: 'in_call' },
+  visit: { id: 'photo-test-visit', clinicId: 'photo-test-clinic', patientRef: 'Patient/photo-test', status: 'in_progress' },
 }));
 vi.mock('@/lib/auth/doctor', () => ({ getDoctor: async () => auth.doctor, ownsVisit: () => auth.owns }));
-vi.mock('@/lib/auth/patient', () => ({ isPatientVerified: async () => auth.verified }));
+vi.mock('@/lib/auth/patient', () => ({ authorizedPatient: async () => auth.verified ? auth.visit : null }));
 vi.mock('@/lib/visits/store', () => ({ getVisitStore: () => ({ get: async () => auth.visit, getByToken: async () => auth.visit }) }));
 
 import { GET } from '../../src/app/api/doctor/visits/[id]/photos/route';
@@ -18,7 +19,7 @@ const patientParams = { params: Promise.resolve({ token: 'test-token' }) };
 
 beforeEach(() => {
   auth.doctor = null; auth.owns = false; auth.verified = false;
-  auth.visit = { id: 'photo-test-visit', status: 'in_call' };
+  auth.visit = { id: 'photo-test-visit', clinicId: 'photo-test-clinic', patientRef: 'Patient/photo-test', status: 'in_progress' };
   vi.stubEnv('NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME', 'demo');
   vi.stubEnv('NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET', 'unsigned');
 });
@@ -33,7 +34,7 @@ describe('visit photo access', () => {
   });
   it('returns only photos belonging to the authorized visit', async () => {
     auth.doctor = {}; auth.owns = true;
-    addPhoto('other-visit', { id: 'other', publicId: 'private-other-photo', notes: '', createdAt: new Date().toISOString() });
+    await addPhoto({ ...auth.visit, id: 'other-visit' } as Visit, { id: 'other', publicId: 'private-other-photo', notes: '', createdAt: new Date().toISOString() });
     const result = await GET(new Request('http://localhost/api/photos'), doctorParams);
     expect(result.status).toBe(200);
     expect(await result.json()).toEqual({ photos: [] });

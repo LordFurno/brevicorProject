@@ -83,6 +83,7 @@ export function PhotoTools({ remoteStream, visitId, videoRef, captureRegion, cap
     try {
       const body = new FormData();
       body.append('file', file, photoFilename(file.type));
+      body.append('source', fromCapture ? 'in_call_capture' : 'patient_upload');
       const response = await fetch(`/api/doctor/visits/${encodeURIComponent(visitId)}/photos`, { method: 'POST', body, signal: abort.signal });
       const data = await response.json();
       if (!response.ok || !data.photo) throw new Error(data.error || 'Photo upload failed.');

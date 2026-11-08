@@ -19,16 +19,21 @@ so normal work never touches the same files.
 5. **Line endings** are normalised by `.gitattributes`, so Windows and macOS users don't produce whole-file diffs.
 6. The root `tsconfig.json` excludes `apps/`, so the gateway's typecheck and build never compile the frontend.
 
-## Integration contracts (the only places our code meets)
-- **Frontend → FHIR gateway:** HTTP only, per `docs/fhir-contract.md`. The frontend reads charts with
-  `CLINICAL_SOURCE=fhir`, `FHIR_BASE_URL=http://localhost:4000/api/fhir/R4`, `FHIR_CLINIC_ID=demo-mock`
-  (sent as `X-Clinic-Id`) and `FHIR_API_KEY` = the gateway's `INTERNAL_SERVICE_TOKEN` (sent as
-  `Authorization: Bearer`). `X-Clinic-Id` alone gets 401. See `apps/web/src/lib/clinical/fhir-source.ts`
-  and the README's Authentication section. A signed-in physician's Supabase access token also works in
-  place of the service token.
-  The chart also asks for `Condition`, `AllergyIntolerance`, `MedicationStatement` and `Observation`.
-  Those sections stay empty until the gateway supports them.
-- **Frontend → Supabase:** physician Auth (email/password). Later, a `visits` table backing
-  `VisitStore` (`apps/web/src/lib/visits/store.ts`). The data owner writes the migration and the frontend owner writes the adapter.
-- **Matching patients:** bookings carry name, date of birth and (optionally) an Ontario health card number.
-  The frontend searches `Patient?identifier=<ohip>`, then `Patient?family=<surname>&birthdate=<yyyy-mm-dd>`.
+## Integration contracts
+
+- **Frontend → FHIR gateway:** HTTP only, per `docs/fhir-contract.md`. Signed-in
+  physicians forward their access token and selected membership clinic; sync and
+  patient flows use `INTERNAL_SERVICE_TOKEN` with explicit clinic context. Never
+  query clinical FHIR/mock/vendor tables directly from the frontend.
+- **Frontend → Supabase:** physician Auth and clinic membership, plus server-only
+  `visits`, `visit_events`, and `visit_photos`. Migrations remain at the root.
+  No anonymous/authenticated memory-table or RPC grants. The secret key never
+  enters browser code. State transitions and activity events commit atomically.
+- **Frontend → notifications:** server-side calls to the root's `/api/notify/v1`.
+  No contact fallbacks or provider SDKs in frontend notification code.
+- **Patient matching:** stable `patient_ref` plus clinic, never name+DOB hashes or
+  demographic search. Clinical display data is hydrated from FHIR per request.
+- **Development booking:** disabled by default and confined to its memory preview.
+  It is not an EHR appointment and never writes to the persistent activity store.
+
+Detailed setup, sync and live verification: `apps/web/README.md`.

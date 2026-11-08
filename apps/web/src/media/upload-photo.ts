@@ -10,5 +10,5 @@ export async function uploadPhoto(req: Request): Promise<VisitPhoto> {
   const result = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloud)}/image/upload`, { method: 'POST', body, signal: AbortSignal.timeout(60000) });
   const data = await result.json();
   if (!result.ok || !data.public_id) throw new Error('Cloudinary could not upload this photo. Check the unsigned preset and try again.');
-  return { id: crypto.randomUUID(), publicId: data.public_id, version: data.version, width: data.width, height: data.height, createdAt: new Date().toISOString(), notes: '', diagnosis: '' };
+  return { id: crypto.randomUUID(), publicId: data.public_id, version: data.version, width: data.width, height: data.height, createdAt: new Date().toISOString(), notes: '', diagnosis: '', source: form.get('source') === 'in_call_capture' ? 'in_call_capture' : 'patient_upload' };
 }

@@ -33,6 +33,6 @@ describe('physician waiting room across midnight', () => {
   });
   it('scopes the previous-day query to this physician and clinic in Toronto time', async () => {
     await loadDoctorSchedule(practitioner, now);
-    expect(fixture.query).toHaveBeenCalledWith({ clinicId: 'clinic-a', practitionerId: 'doctor-a', from: '2026-11-07T05:00:00.000Z', to: '2026-11-08T05:00:00.000Z' });
+    expect(fixture.query).toHaveBeenCalledWith({ clinicId: 'clinic-a', practitionerRef: 'Practitioner/doctor-a', from: '2026-11-07T05:00:00.000Z', to: '2026-11-08T05:00:00.000Z' });
   });
 });

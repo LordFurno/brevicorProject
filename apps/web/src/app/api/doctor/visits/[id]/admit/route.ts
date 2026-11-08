@@ -8,7 +8,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const doctor = await getDoctor();
   if (!doctor) return jsonError(401, 'Unauthorized');
-  const visit = await getVisitStore().get(id);
+  const visit = await getVisitStore().get(doctor.clinicId, id);
   if (!visit || !ownsVisit(doctor, visit)) return jsonError(404, 'Visit not found');
   const admitted = await admitVisit(visit);
   if (!admitted) return jsonError(409, 'This visit has already ended.');

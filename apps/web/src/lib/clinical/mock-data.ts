@@ -1,3 +1,4 @@
+import type * as fhir4 from 'fhir/r4';
 // Synthetic FHIR R4 records for the demo. NOT real patients.
 // Placeholder until the team's FHIR gateway / Supabase mock is connected.
 import type { ClinicalResource } from './map';

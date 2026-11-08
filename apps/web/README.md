@@ -1,127 +1,173 @@
-# Brevicor Web (patient + physician frontend)
+# Brevicor Web
 
-Next.js app for booking video visits, the virtual waiting room, and the physician
-console (dashboard + consultation room with the patient's chart side by side).
+Patient invitations, waiting room, physician dashboard, video calls, and photo history.
+This is the Next 15 frontend; the Next 16 application at the repository root serves
+FHIR and notifications. Install dependencies separately in each application.
 
-## Run it
+## Setup
 
-```bash
-cd apps/web
-npm install
-cp .env.example .env.local   # optional — everything works with defaults
-npm run dev                  # http://localhost:3000
+From the root, apply migrations with `npm run db:push`. In `apps/web`, run
+`npm ci`, copy `.env.example` to `.env.local`, and configure the same Supabase
+project used by the gateway. Environment files are ignored by Git.
+
+| Variable | Purpose |
+| --- | --- |
+| `SUPABASE_URL` | Shared Supabase project URL. |
+| `SUPABASE_ANON_KEY` | Publishable or legacy anon key for the cookie-backed physician Auth client. |
+| `SUPABASE_SECRET_KEY` | Server-only memory database access. Never exposed in browser code. |
+| `SESSION_SECRET` | Long random secret for patient and active-call cookies; identical across frontend instances. |
+| `FHIR_BASE_URL` | Root gateway, normally `http://localhost:4000/api/fhir/R4`. |
+| `NOTIFY_API_URL` | Root notification API, normally `http://localhost:4000/api/notify/v1`. |
+| `INTERNAL_SERVICE_TOKEN` | Same secret as the root; used for sync, patient verification and notification events. |
+| `APP_BASE_URL` | Canonical frontend URL. Must exactly match the root setting, including port. |
+| `CRON_SECRET` | Bearer credential for the future cron integration. |
+| `VISIT_STORE` | `supabase` by default. `memory` is restricted to development/tests. |
+| `BOOKING_ENABLED` | `false` by default. Development booking additionally requires `VISIT_STORE=memory`. |
+| `CLINICAL_SOURCE` | `fhir` by default. `mock` is limited to the development booking environment. |
+
+The previous global `FHIR_CLINIC_ID` and service-token `FHIR_API_KEY` settings are
+replaced by selected clinic membership and `INTERNAL_SERVICE_TOKEN`. Physicians'
+clinical requests forward their own Supabase access token. Patient and background
+requests use the service token with an explicit clinic.
+
+Run the root with `npm run dev -- -p 4000`; run this frontend with `npm run dev`
+on the port in `APP_BASE_URL`. If port 3000 is occupied, use another port in **both**
+applications' `APP_BASE_URL` and pass that port to the frontend start command.
+
+## EHR-backed demo
+
+From the root:
+
+```sh
+npm run fhir:reset -- demo-mock
+npm run fhir:users
+npm run notify:contacts
 ```
 
-Use `npm run dev:https` to test from a phone on your LAN (camera access needs https).
+Reset reloads synthetic EHR data and writes the same appointment plan to the
+ClinicSoft demo practice. It does not erase Brevicor visits, photos, or audit events.
+Use only the existing demo datasets and configured contacts you control.
 
-## 2-minute demo
+With the gateway running, from `apps/web`:
 
-1. Go to `/doctor/login` and click **Dr. Amelia Chen** under *Demo accounts*.
-2. The dashboard shows seeded patients: two already in the waiting room, plus **Priya Raman**, who is booked for now.
-3. Click the link icon on Priya's row to copy her visit link. Open it in a **new tab of the same browser** and enter DOB `1993-06-21`.
-4. Priya now appears in the waiting room (you'll hear a chime). Click **Call in**.
-5. You get a live video call: the patient's video on the left and her chart (allergies, meds, labs, past visits) on the right.
-6. **End visit** disconnects both sides.
+```sh
+npm run visits:sync -- demo-mock
+npm run visits:sync -- demo-clinicsoft
+```
 
-You can also book a new visit at `/book` and open the confirmation link.
-**Reset demo** at the bottom of the dashboard re-seeds the data around the current time.
+Sign in at `/doctor/login` as `physician.one@demo.brevicor.test` or
+`physician.two@demo.brevicor.test`, using the root's `DEMO_USER_PASSWORD`.
+Select **demo-mock** or **demo-clinicsoft** in the clinic switcher. Only physician
+memberships appear; the second account's staff-only HAPI membership is excluded.
 
-## Where things live
+Dashboard entry syncs today plus 14 days in Ontario time. **Re-sync appointments**
+refreshes EHR changes without rebuilding demo data. Three-second dashboard polling
+reads persisted visits and does not repeatedly sync. Previous-day active visits and
+early-arrival indicators remain visible.
 
-| Path | What |
-|---|---|
-| `src/app/` | Routes. `book/`, `visit/[token]/` (patient), `doctor/` (physician), `api/` |
-| `src/components/` | UI. `booking/`, `visit/` (waiting room), `doctor/` (dashboard, consult room, chart), `video/` |
-| `src/comms/` | **Swappable video provider.** `types.ts` is the contract; `twilio/` and `local/` implement it |
-| `src/lib/clinical/` | **Seam to the FHIR gateway.** `mock-source.ts` (now) / `fhir-source.ts` (later), both use `map.ts` |
-| `src/lib/visits/` | Appointment/session state. `store.ts` is in-memory; swap for Supabase |
-| `src/lib/directory.ts` | Clinics + physicians (static for now; later FHIR Organization/Practitioner) |
-| `src/lib/auth/` | Physician sign-in (Supabase or demo) and patient visit cookies |
+Use **New patient link** to rotate an invitation and copy its replacement. The old
+link immediately loses access, and the replacement requires DOB verification again.
+Open it in a patient tab, use that synthetic Patient's FHIR `birthDate`, and check in
+within the existing 15-minute early / 30-minute late window. Admit the patient from
+the dashboard. A joined call survives invitation rotation. Rescheduling resets a
+waiting patient; cancelling an active call blocks new joins while the physician
+can finish the existing call. Ending a call never completes the FHIR Encounter.
 
-## Switching the video provider
+The doctor dashboard sends a presence heartbeat immediately and every 30 seconds.
+Online physicians receive the in-app alert instead of waiting-room SMS. Notification
+failures do not undo sync or check-in. Twilio trial accounts need the root's
+`TWILIO_TRIAL_TEMPLATES=true`; recipients then see Twilio sample text, without the
+real invitation link. A `sent` result means provider acceptance, not delivery.
 
-* `COMMS_PROVIDER=local` (default): free, with no account needed. Real peer-to-peer WebRTC between two tabs of the same browser. Good for demos on one laptop.
-* `COMMS_PROVIDER=twilio`: set `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID` and `TWILIO_API_KEY_SECRET` (Console → API keys). Works across devices.
+## Persistent activity and photos
 
-To add another provider (Daily, LiveKit, Vonage…), implement `CommsServerProvider` and `CommsClient`
-in `src/comms/<name>/` and register them in `src/comms/server.ts` and `src/comms/client.ts`.
-No page or component changes are needed.
+`visits` contains FHIR references and scheduling/session state, never patient names,
+DOB, contacts, health cards, or clinical resources. Names, DOB, reasons, and chart
+data are fetched from the gateway per request. Unsupported secondary chart sections
+remain empty; an unavailable Patient produces an unavailable-chart message.
 
-## Connecting the real clinic data
+`visit_events` records atomic state changes and sanitized notification outcomes.
+It never stores submitted DOBs, invitation links, tokens, message bodies, or notes.
+Only SHA-256 invitation hashes are persisted. Notification delivery is best effort:
+there is no durable outbox or automatic retry of failed keys. An operator retry
+requires a fresh key and a fresh link when the original token is no longer available.
 
-Set `CLINICAL_SOURCE=fhir`, `FHIR_BASE_URL` and `FHIR_API_KEY`. The app then searches the gateway for
-`Patient` (by OHIP identifier, then by family name + birthdate), followed by `Condition`, `AllergyIntolerance`,
-`MedicationStatement`, `Observation`, `Encounter` and `DocumentReference` for that patient.
-If a search fails, the chart shows an "unavailable" banner and the visit continues.
+`visit_photos` stores Cloudinary references, source, dimensions, notes, and diagnosis.
+Cloudinary continues storing the images. Configure the two `NEXT_PUBLIC_CLOUDINARY_*`
+variables with the existing cloud and unsigned upload preset. JPEG, PNG, WebP, and
+AVIF uploads support up to 20 MB, with 30 photos per visit enforced in the database.
+Patient camera submissions, physician video captures, filters, region selection,
+annotations and low-data image delivery retain their existing behavior.
 
-## Known limitations (MVP)
+Photo history is matched by `(clinic_id, patient_ref)`. A physician with an assigned
+visit can see that patient's history across physicians in the same clinic; patient
+access remains restricted to the verified visit. Photos and notes survive restarts.
+`document_ref` is reserved for future FHIR chart attachment work.
 
-* Visit state is in memory, so it resets on restart and won't work across Vercel serverless instances. Implement `VisitStore` on Supabase before deploying.
-* Invitation links are shown on screen rather than emailed/texted (see `TODO(notifications)` in `lib/visits/service.ts`).
-* Waiting-room updates use 3-second polling. Supabase Realtime is a drop-in upgrade.
-* Transcription and phone (PSTN) calls are not built yet.
+All memory tables and RPCs are server-only with RLS enabled and no anonymous or
+authenticated grants. Polling works across independent server processes; no Supabase
+Realtime browser access is required.
 
+## Booking, video and remaining limits
 
-## Cloudinary photo tools
+`/book`, its APIs and navigation are disabled by default. An isolated development
+booking preview is available with `BOOKING_ENABLED=true` and `VISIT_STORE=memory`.
+It uses the static directory, supports slot selection and DOB preview verification,
+and never writes demographics to Supabase or sends notifications. Its bookings are
+not appointments in the EHR or the persistent physician dashboard.
 
-The physician consultation room has **Patient chart** and **Photos & notes** panels.
-In Photos & notes, upload a JPEG/PNG/WebP/AVIF photo (up to 20 MB), or capture the
-connected patient's live video. Original colors, gentle clarity, sharpening, color
-balance, lesion zoom, manual pan, face blur, annotations, and wound-outline tracing
-reuse the original Cloudinary starter project's image processing.
+`COMMS_PROVIDER=local` provides same-browser WebRTC. `twilio` additionally needs the
+three Twilio video credentials in `.env.example`. Providers remain behind the existing
+comms interfaces. Telephone appointments sync and receive appropriate notification
+templates; PSTN calls and transcription remain future work.
 
-Set NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME and NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET in
-apps/web/.env.local (see .env.example), then restart npm run dev. The preset must
-be Unsigned in Cloudinary. No Cloudinary API secret is needed or exposed.
+## Commands and verification
 
-Low-data photos use q_auto:eco and a 640px maximum edge instead of 1280px; f_auto
-selects a browser-compatible format. Original uploads are retained. This setting
-does not change video-call bandwidth or initial upload size.
+```sh
+npm test
+npm run typecheck
+npm run build
+npm run start -- -p 3000
+```
 
-Notes and photo history are session-only, not attached to FHIR records. Leaving or
-reloading the consultation clears that local history, but does not delete uploaded
-Cloudinary assets. This integration does not modify any lib folder. Patient photos can be shared from the verified waiting room or live call. They
-are available to the owning physician through authenticated visit-scoped routes.
-Photo references use a bounded, 24-hour in-memory store, so use a single app server
-for this demo. A persistent store is required for multiple production instances.
-Persistent chart attachments still require additional backend work.
+Tests include the existing Cloudinary regressions, memory/sync/auth tests, and isolated
+Supabase persistence tests when database environment settings are present. They do not
+send SMS. At the root, `npm test` runs gateway/notification tests. To assert the installed
+schema is free of demographics and public grants:
 
-The original create-cloudinary-react starter remains in
-cloudinaryFeatures/brevicortelemedicine for standalone development. Its dependencies
-are separate; run npm install there to use its Vite UI. The repo-root TypeScript
-project excludes this separate app.
+```sh
+npx supabase db query --remote --read-only --file tests/sql/memory-schema.sql
+```
 
+The future cron entrypoint is `GET /api/cron/sync-visits?clinicId=<id>`, authenticated
+with `Authorization: Bearer <CRON_SECRET>`. No recurring job is installed.
 
-### Selecting and capturing regions
+For explicit **live** verification, run two production frontends against the same DB
+and `SESSION_SECRET`, then run the script from `apps/web`. It uses `APP_BASE_URL` and
+`SECOND_WEB_URL` (default `http://localhost:3002`), attempts real notification sends,
+and uploads a synthetic image to the configured Cloudinary account:
 
-In a live physician call, choose **Select region**, drag over the patient video,
-then choose **Capture selected area**. **Clear region** restores full-frame capture.
-The coordinates account for the visible video's center crop. Selection works with
-mouse, touch, or pen. Each capture reads the currently displayed video and uploads
-under a unique filename; wait for an upload to finish before capturing again.
+```sh
+node --conditions=react-server --import tsx scripts/verify-memory-flow.ts --send-notifications
+# Restart both frontend processes, then:
+node --conditions=react-server --import tsx scripts/verify-memory-flow.ts --restart-check
+```
 
-For a saved image, use **Select photo region**, drag over the image, and choose
-**Apply region**. **Show full photo** restores the original view without changing
-the uploaded original.
+The ignored snapshot contains only IDs and a demo physician login, without patient
+demographics, links, DOBs, or cookies. Do not rebuild between the two phases, since
+Next clears `.next`. See `docs/memory-verification.md` at the repo root for recorded
+results from both clinics.
 
+## Layout
 
-## Camera submissions and longitudinal history
+| Path | Responsibility |
+| --- | --- |
+| `src/lib/clinical/` | Authenticated gateway reads, direct FHIR patient references, chart mapping. |
+| `src/lib/visits/` | Reference-only types, atomic stores, synchronization, tokens and activity services. |
+| `src/lib/auth/`, `src/lib/supabase/` | Physician sessions, clinic membership, patient/call capabilities, server-only DB access. |
+| `src/media/` | Persistent photo references, notes and patient history; Cloudinary upload. |
+| `src/lib/notify.ts` | Existing root notification API client. |
+| `src/app/api/doctor/`, `src/app/api/visit/` | Ownership-checked physician and verified-patient routes. |
 
-The waiting room's Take photo button captures the existing camera preview. Patients
-review the still, retake/discard it, then Send to physician before the call.
-Uploaded files use the same review step.
-
-In the consultation's right panel, Photos & notes saves diagnosis/assessment and
-notes per photo. Progress history groups original-color photos by meeting and
-filters by weeks or number of meetings. It shows recorded observations, not an
-automated healing score. Historical photos are scoped to the current clinic and
-physician and matched on exact normalized patient name plus date of birth because
-the current visit model does not expose a stable patient ID. Matching should use a
-stable clinical patient ID before production.
-
-Photo references and assessments currently use a temporary in-memory adapter in
-src/media/visit-photos.ts. They reset when the app process restarts. Durable storage
-is intentionally left for the backend teammate; the UI and authenticated routes are
-ready to connect to that storage. Cloudinary stores uploaded image assets. No lib
-files are modified, and photo notes do not write FHIR records. History only shows
-photos submitted through this app; no old diagnoses or healing scores are invented.
+Shared migrations remain at root `supabase/migrations`; apply them from the root with
+`npm run db:push`. No EHR-specific logic or direct clinical database access belongs here.

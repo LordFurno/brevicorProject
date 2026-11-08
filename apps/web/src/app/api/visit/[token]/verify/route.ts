@@ -2,34 +2,29 @@ import { NextResponse } from 'next/server';
 import { setPatientCookie } from '@/lib/auth/patient';
 import { jsonError, readJson } from '@/lib/http';
 import { getVisitStore } from '@/lib/visits/store';
-import { MAX_VERIFY_ATTEMPTS } from '@/lib/visits/types';
-
-// POST /api/visit/:token/verify  { dateOfBirth: "YYYY-MM-DD" }
+import { verifyPatient } from '@/lib/visits/service';
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
-  const { token } = await params;
-  const store = getVisitStore();
-  const visit = await store.getByToken(token);
-  if (!visit) return jsonError(404, 'This visit link isn’t valid.');
-  if (visit.verifyAttempts >= MAX_VERIFY_ATTEMPTS)
-    return jsonError(429, 'Too many attempts. Please call your clinic to confirm your visit.');
-
-  const body = (await readJson(req)) as { dateOfBirth?: unknown } | null;
-  const dob = typeof body?.dateOfBirth === 'string' ? body.dateOfBirth.trim() : '';
-
-  if (dob !== visit.patient.dateOfBirth) {
-    const attempts = visit.verifyAttempts + 1;
-    await store.update(visit.id, { verifyAttempts: attempts });
-    const left = MAX_VERIFY_ATTEMPTS - attempts;
-    return jsonError(
-      401,
-      left > 0
-        ? `That date of birth doesn’t match our records. ${left} ${left === 1 ? 'try' : 'tries'} left.`
-        : 'Too many attempts. Please call your clinic to confirm your visit.',
-    );
+  const { token } = await params,
+    store = getVisitStore(),
+    visit = await store.getByToken(token);
+  if (!visit) return jsonError(404, 'This visit link is not valid.');
+  const body = (await readJson(req)) as { dateOfBirth?: unknown } | null,
+    dob = typeof body?.dateOfBirth === 'string' ? body.dateOfBirth.trim() : '';
+  try {
+    const result = await verifyPatient(store, visit, token, dob);
+    if (result.status !== 200)
+      return jsonError(
+        result.status,
+        result.status === 429 || result.attempts >= 5
+          ? 'Too many attempts. Please call your clinic.'
+          : result.status === 409
+            ? 'This visit is closed.'
+            : `Date of birth does not match. ${5 - result.attempts} tries left.`,
+      );
+    const res = NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
+    setPatientCookie(res, visit);
+    return res;
+  } catch {
+    return jsonError(503, 'Clinic records are unavailable. Please retry.');
   }
-
-  await store.update(visit.id, { verifyAttempts: 0 });
-  const res = NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
-  setPatientCookie(res, visit.id);
-  return res;
 }

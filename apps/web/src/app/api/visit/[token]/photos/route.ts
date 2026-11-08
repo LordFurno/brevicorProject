@@ -1,29 +1,26 @@
-import { isPatientVerified } from '@/lib/auth/patient';
-import { getVisitStore } from '@/lib/visits/store';
-import { addPhoto, getPhotos, photoContext } from '@/media/visit-photos';
-
+import { authorizedPatient } from '@/lib/auth/patient';
+import { addPhoto, getPhotos } from '@/media/visit-photos';
+import { uploadPhoto } from '@/media/upload-photo';
+import { json, jsonError } from '@/lib/http';
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
-  const origin = req.headers.get('origin');
-  if (origin && origin !== new URL(req.url).origin) return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
-  const { token } = await params;
-  const visit = await getVisitStore().getByToken(token);
-  if (!visit || !(await isPatientVerified(visit.id))) return Response.json({ error: 'Please verify your visit first.' }, { status: 401 });
-  if (visit.status === 'completed' || visit.status === 'cancelled') return Response.json({ error: 'This visit has ended.' }, { status: 409 });
-  if (getPhotos(visit.id).length >= 30) return Response.json({ error: 'Photo limit reached for this visit.' }, { status: 429 });
-  const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-  const preset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-  if (!cloud || !preset) return Response.json({ error: 'Photo uploads are not configured.' }, { status: 503 });
+  if (req.headers.has('origin') && req.headers.get('origin') !== new URL(req.url).origin)
+    return jsonError(403, 'Invalid request origin.');
+  const visit = await authorizedPatient((await params).token, true);
+  if (!visit) return jsonError(401, 'Please verify your visit first.');
+  if (['completed', 'cancelled'].includes(visit.status))
+    return jsonError(409, 'This visit has ended.');
+  if ((await getPhotos(visit)).length >= 30)
+    return jsonError(429, 'Photo limit reached for this visit.');
+  const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
+    preset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+  if (!cloud || !preset) return jsonError(503, 'Photo uploads are not configured.');
   try {
-    const form = await req.formData();
-    const file = form.get('file');
-    if (!(file instanceof File) || !['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type) || file.size === 0 || file.size > 20 * 1024 * 1024) return Response.json({ error: 'Choose a JPEG, PNG, WebP, or AVIF photo under 20 MB.' }, { status: 400 });
-    const body = new FormData(); body.append('file', file, `visit-photo-${crypto.randomUUID()}`); body.append('upload_preset', preset);
-    const result = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloud)}/image/upload`, { method: 'POST', body, signal: AbortSignal.timeout(60000) });
-    const data = await result.json();
-    if (!result.ok || !data.public_id) return Response.json({ error: 'Cloudinary could not upload this photo. Check the unsigned preset and try again.' }, { status: 502 });
-    addPhoto(visit.id, { id: crypto.randomUUID(), publicId: data.public_id, version: data.version, width: data.width, height: data.height, createdAt: new Date().toISOString(), notes: '', diagnosis: '' }, photoContext(visit));
-    return Response.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
-  } catch {
-    return Response.json({ error: 'Photo upload failed. Please try again.' }, { status: 502 });
+    await addPhoto(visit, { ...(await uploadPhoto(req)), source: 'patient_upload' }, 'patient');
+    return json({ ok: true });
+  } catch (e) {
+    return jsonError(
+      e instanceof Error && e.message.startsWith('Choose') ? 400 : 502,
+      'Photo upload failed. Choose a supported image under 20 MB and retry.',
+    );
   }
 }

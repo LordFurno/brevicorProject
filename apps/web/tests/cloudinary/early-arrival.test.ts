@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Visit } from '../../src/lib/visits/types';
 const fixture = vi.hoisted(() => ({ verified: true, update: vi.fn(), status: vi.fn(), visit: { id: 'early-visit', status: 'scheduled', start: '2026-11-08T15:00:00Z' } }));
-vi.mock('@/lib/auth/patient', () => ({ isPatientVerified: async () => fixture.verified }));
+vi.mock('@/lib/auth/patient', () => ({ authorizedPatient: async () => fixture.verified ? fixture.visit : null }));
 vi.mock('@/lib/visits/store', () => ({ getVisitStore: () => ({ getByToken: async () => fixture.visit, update: fixture.update }) }));
-vi.mock('@/lib/visits/service', () => ({ checkInAndGetStatus: fixture.status, toDoctorView: (v: Visit) => ({ id: v.id, status: v.status, present: false }) }));
+vi.mock('@/lib/visits/service', () => ({ checkInAndGetStatus: fixture.status, heartbeat: async (_store: unknown, v: Visit, now: number) => fixture.update(v.id, { lastSeenAt: new Date(now).toISOString() }), toDoctorView: (v: Visit) => ({ id: v.id, status: v.status, present: false }) }));
 import { hasEarlyArrival, toScheduleView } from '../../src/scheduling/doctor-view';
 import { POST } from '../../src/app/api/visit/[token]/status/route';
 

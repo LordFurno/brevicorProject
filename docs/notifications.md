@@ -180,8 +180,8 @@ A signed-in physician's heartbeat: `Authorization: Bearer <Supabase access token
 plus `X-Clinic-Id` if they belong to several clinics. It updates
 `physician_contacts.last_seen_at`. A physician seen within
 `NOTIFY_ONLINE_WINDOW_SECONDS` gets no SMS for `patient_waiting`, because the
-in-app alert covers them. Until the frontend sends this heartbeat, every
-physician counts as offline, so the SMS always goes out.
+in-app alert covers them. The frontend now sends this heartbeat immediately and every 30 seconds while the
+dashboard is open.
 
 Response: `{ "lastSeenAt": "…", "onlineWindowSeconds": 60 }`.
 
@@ -239,87 +239,43 @@ Both tables are server-only: RLS is on and nothing is granted to `anon` or
   review the spec calls for (§3), including Twilio's data retention and
   redaction options. The same applies to whichever email provider is chosen.
 
-## Wiring up the frontend (later)
+## Frontend integration (wired)
 
-`apps/web` is out of scope for this change. These are the two calls it should
-add.
+The persistent frontend uses FHIR Appointment, Patient and Practitioner references.
+Its server-only client in `apps/web/src/lib/notify.ts` calls this existing API;
+no delivery provider or contact-resolution logic is duplicated in the frontend.
 
-**Prerequisite: visits must carry FHIR references.** The service only sends to
-contacts it reads from FHIR. A visit therefore needs the FHIR
-`appointmentRef` and the physician's `practitionerRef`, plus `patientRef` where
-it's known. Today `apps/web` visits hold the booking form's details, and their
-`practitionerId` is a frontend directory id. Adding the references is part of
-the upcoming FHIR–frontend integration. Until then, a visit someone books
-themselves in `apps/web` can't be notified: by design there is no fallback that
-accepts contact details from the caller.
+- Sync creates `visit_invitation`, `visit_rescheduled` and `visit_cancelled`
+  events after committing visit state and timeline entries. Dedupe keys include
+  visit ID, numeric start timestamp or status, and the transition revision. This
+  also allows a later return to a previously used start time to send a new notice.
+- The atomic first transition to waiting emits `patient_waiting:<visitId>`.
+  Repeated heartbeats and concurrent app instances do not emit another arrival.
+- The dashboard proxies `POST /presence` immediately and every 30 seconds with
+  the physician's Supabase access token and selected clinic. Online physicians
+  are suppressed by the existing notification service.
+- Patient/sync events use `INTERNAL_SERVICE_TOKEN` and explicit `X-Clinic-Id`.
+  Contacts still come exclusively from FHIR. No demographics are included in a
+  frontend notification request.
+- Notification requests time out after five seconds. HTTP, provider, scheduling
+  and configuration failures cannot undo sync/check-in or break the dashboard.
+  Web requests use Next's `after` lifecycle; the sync CLI awaits delivery attempts.
+  Sanitized result codes are recorded in `visit_events` without recipients,
+  message bodies, links or tokens.
+- The root and frontend must share the canonical `APP_BASE_URL`. The frontend
+  also needs `NOTIFY_API_URL` pointing at this root service. Clinic selection is
+  per authenticated membership, replacing a global frontend clinic environment.
+- Only invitation hashes are stored. Rescheduling and **New patient link** rotate
+  the invitation and require DOB verification again. The new-link dashboard action
+  copies its result and does not automatically text it. Rebuilding a lost link or
+  retrying a failed delivery is an explicit action, not an automatic polling retry.
 
-A server-side helper (it reuses the frontend's existing FHIR service-token
-settings):
-
-```ts
-// apps/web/src/lib/notify.ts (server-only)
-export async function notify(event: Record<string, string>) {
-  try {
-    await fetch(`${process.env.NOTIFY_API_URL}/events`, {   // e.g. http://localhost:4000/api/notify/v1
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.FHIR_API_KEY}`,  // the gateway's INTERNAL_SERVICE_TOKEN
-        'X-Clinic-Id': process.env.FHIR_CLINIC_ID!,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(event),
-      signal: AbortSignal.timeout(5_000),
-    });
-  } catch {
-    // A notification must never break booking or check-in.
-  }
-}
-```
-
-**1. `visit_invitation`:** at `TODO(notifications)` in
-`apps/web/src/lib/visits/service.ts` (`createBooking`, ~line 192), after
-`store.insert(visit)`:
-
-```ts
-after(() =>   // from 'next/server': runs after the response, so booking isn't slowed down
-  notify({
-    type: 'visit_invitation',
-    dedupeKey: `visit_invitation:${visit.id}`,
-    appointmentRef: visit.appointmentRef,          // added by the FHIR-frontend integration
-    link: `${APP_BASE_URL}/visit/${visit.inviteToken}`,
-  }),
-);
-```
-
-**2. `patient_waiting`:** in `checkInAndGetStatus()`, only when this check-in
-first moves the visit to `'waiting'` (the patient's heartbeat repeats every few
-seconds):
-
-```ts
-const firstArrival = v.status !== 'waiting';
-await store.update(v.id, { status: 'waiting', waitingSince, lastSeenAt: iso(now) });
-if (firstArrival) {
-  after(() =>
-    notify({
-      type: 'patient_waiting',
-      dedupeKey: `patient_waiting:${v.id}`,
-      practitionerRef: v.practitionerRef,          // the physician's FHIR Practitioner
-      appointmentRef: v.appointmentRef,
-      link: `${APP_BASE_URL}/doctor`,
-    }),
-  );
-}
-```
-
-The `dedupeKey` makes repeats harmless anyway, but calling only on the first
-change avoids a request every few seconds. Cancellations and reschedules follow
-the same pattern, with `visit_cancelled:<visitId>` and
-`visit_rescheduled:<visitId>:<new start>`. The new start time keeps a second
-reschedule from being treated as a duplicate.
-
-The physician console should also send `POST /presence` with the physician's
-Supabase token every ~20–30 seconds while it's open. That stops online
-physicians getting texted for patients they can already see.
+There is no durable delivery outbox; a server interruption can lose background
+work, and the existing notification service treats a failed/skipped key as final.
+An explicit retry uses a fresh key and, when necessary, a newly rotated link.
+Development self-bookings are isolated from the EHR and are never notified.
+See `apps/web/README.md` for setup and `docs/memory-verification.md` for live
+mock/ClinicSoft evidence, including the Twilio trial limitation.
 
 ## Adding an email provider
 

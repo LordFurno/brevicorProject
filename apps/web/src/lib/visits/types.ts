@@ -1,42 +1,34 @@
-// Shared visit types (safe to import from client components).
-
+// Persistent activity only. Display data is hydrated from FHIR per request.
 export type VisitStatus = 'scheduled' | 'waiting' | 'in_progress' | 'completed' | 'cancelled';
-
-export interface VisitPatient {
-  name: string;
-  dateOfBirth: string; // YYYY-MM-DD
-  healthCardNumber?: string;
-  email?: string;
-  phone?: string;
-}
-
 export interface Visit {
   id: string;
-  clinicId: string; // tenant
-  practitionerId: string;
-  start: string; // ISO
-  end: string; // ISO
-  reason: string;
-  patient: VisitPatient;
-  inviteToken: string;
-  roomName: string;
+  clinicId: string;
+  appointmentRef: string;
+  patientRef: string;
+  practitionerRef: string;
+  encounterRef?: string;
+  modality: 'video' | 'phone';
+  start: string;
+  end: string;
   status: VisitStatus;
-  createdAt: string;
+  appointmentStatus: string;
+  inviteTokenHash: string;
+  roomName: string;
   waitingSince?: string;
   lastSeenAt?: string;
   admittedAt?: string;
   endedAt?: string;
   verifyAttempts: number;
-  /** Seeded demo patient that is always "present" in the waiting room. */
-  simulated?: boolean;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
 }
-
-/** What a physician sees about a visit. */
 export interface DoctorVisitView {
   id: string;
   start: string;
   end: string;
   status: VisitStatus;
+  modality: 'video' | 'phone';
   present: boolean;
   waitingSince?: string;
   admittedAt?: string;
@@ -44,12 +36,28 @@ export interface DoctorVisitView {
   patientName: string;
   patientDateOfBirth: string;
   reason: string;
-  invitationPath: string;
 }
-
+export type EventType =
+  | 'synced'
+  | 'invited'
+  | 'rescheduled'
+  | 'cancelled'
+  | 'verify_failed'
+  | 'verified'
+  | 'checked_in'
+  | 'admitted'
+  | 'ended'
+  | 'photo_added'
+  | 'photo_updated'
+  | 'notification_sent'
+  | 'notification_failed'
+  | 'notification_skipped';
+export interface VisitEvent {
+  type: EventType;
+  actor: 'patient' | 'physician' | 'system';
+  meta?: Record<string, string>;
+}
 export type PatientPhase = 'too_early' | 'waiting' | 'in_call' | 'ended' | 'cancelled' | 'expired';
-
-/** What a patient sees about their own visit. No other patients' data. */
 export interface PatientStatus {
   phase: PatientPhase;
   startsAt: string;
@@ -59,8 +67,6 @@ export interface PatientStatus {
   doctorBusy: boolean;
   minutesLate: number;
 }
-
-// Clinic policy (spec §2.2). Make these per-clinic settings later.
 export const EARLY_ENTRY_MIN = 15;
 export const LATE_ENTRY_MIN = 30;
 export const PRESENCE_TIMEOUT_MS = 20_000;

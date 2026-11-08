@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authenticate, setDoctorCookie } from '@/lib/auth/doctor';
+import { authenticate } from '@/lib/auth/doctor';
 import { jsonError, readJson } from '@/lib/http';
 
 export async function POST(req: Request) {
@@ -12,6 +12,5 @@ export async function POST(req: Request) {
   if (!practitioner) return jsonError(401, 'That email and password don’t match our records.');
 
   const res = NextResponse.json({ ok: true });
-  setDoctorCookie(res, practitioner);
   return res;
 }

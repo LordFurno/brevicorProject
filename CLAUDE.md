@@ -121,7 +121,7 @@ supabase/migrations/, tests/{unit,golden,integration,conformance}/
 
 Physician alerts and patient invitations at `/api/notify/v1` (root app). Spec:
 `docs/specs.md` (Physician Notifications, Appointment Management). Details,
-setup and the frontend calls still to add: `docs/notifications.md`.
+setup and the wired frontend calls: `docs/notifications.md`.
 
 ## Rules
 - Templates (`lib/notify/templates.ts`) accept only clinic display name,
@@ -153,3 +153,38 @@ scripts/{seed-contacts,notify-test}.ts, supabase/migrations/20261110000000_notif
 ## Commands
 - Physician SMS contacts: `npm run notify:contacts` (after `fhir:users`; uses `DEMO_PHYSICIAN_PHONE`)
 - Real end-to-end send (needs `npm run dev`): `npm run notify:test -- <patient_waiting|visit_invitation|visit_cancelled|visit_rescheduled> [--clinic demo-mock] [--dedupe-key k]`
+
+# Persistent Brevicor memory (apps/web)
+
+- Clinical data remains authoritative in the EHR. `visits` stores Appointment,
+  Patient and Practitioner references, scheduling copies and communication state.
+  Never add patient demographics, full FHIR resources, or raw invitation tokens.
+- `visit_events` is the timeline and audit trail. State changes and events commit
+  together through server-only compare-and-swap RPCs. Metadata contains only
+  allowed state values, timestamps, photo IDs and notification result codes.
+- `visit_photos` stores Cloudinary references, notes and diagnosis; history uses
+  `(clinic_id, patient_ref)`, never a name+DOB hash. A physician's assigned visit
+  authorizes clinic-wide history for that patient. Patients access only their visit.
+- Every memory query is clinic-scoped, RLS is enabled, and anon/authenticated have
+  no memory-table or RPC grants. `SUPABASE_SECRET_KEY` is server-only. Never fall
+  back to an in-memory store on a database error.
+- Physician Auth uses the same Supabase users and `clinic_members` as the gateway.
+  Forward their token for clinical reads and presence. Sync, DOB verification and
+  notifications use `INTERNAL_SERVICE_TOKEN` plus explicit clinic context.
+- Invitation hashes are SHA-256. Rotation requires fresh DOB verification; a
+  separate signed credential lets an already joined call finish. Appointment
+  cancellation is tracked independently from communication status. Ending a call
+  never completes the EHR Encounter.
+- `BOOKING_ENABLED=false` by default. The retained booking preview additionally
+  requires development + `VISIT_STORE=memory`; it never writes to Supabase.
+- Dashboard entry and explicit sync refresh today plus 14 days. Polls read the DB.
+  Re-sync never rebuilds EHR data or deletes history. Demo rebuilding remains the
+  root `fhir:reset` command, followed by frontend sync.
+
+Layout: `apps/web/src/lib/{visits,auth,clinical,supabase}/`,
+`apps/web/src/lib/notify.ts`, `apps/web/src/media/visit-photos.ts`,
+`apps/web/scripts/{sync-visits,verify-memory-flow}.ts`,
+`supabase/migrations/20261111*_memory*.sql` (schema and locked photo authorization).
+
+Commands (in apps/web): `npm run visits:sync -- <clinicId>`, `npm test`,
+`npm run typecheck`, `npm run build`. Setup and demo: `apps/web/README.md`.

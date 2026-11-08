@@ -7,5 +7,5 @@ export default defineConfig({
     'server-only': fileURLToPath(new URL('../../tests/stubs/server-only.ts', import.meta.url)),
   } },
   root: fileURLToPath(new URL('./', import.meta.url)),
-  test: { include: ['tests/cloudinary/*.test.ts'], environment: 'node' },
+  test: { include: ['tests/cloudinary/*.test.ts'], setupFiles: ['./tests/setup.ts'], environment: 'node' },
 });
