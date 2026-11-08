@@ -140,3 +140,66 @@ Not covered live: an actual Cloudinary upload. `.env.local` has no
 used a synthetic photo record. The signed upload, authenticated delivery and
 5-minute URLs are covered by mocked tests (`apps/web/tests/cloudinary/`). See
 `docs/compliance.md` for open items.
+
+## Consultation photos against real Cloudinary (branch `clinical`)
+
+Verified November 8, 2026 with the server-side `CLOUDINARY_*` credentials.
+Both servers were started fresh on this branch: the gateway on :4000 with
+`NOTIFY_SMS_PROVIDER=console`, so no texts were sent, and `apps/web` on :3000.
+All checks went through the app's own routes
+(`apps/web/scripts/verify-photos-live.ts`). Cloudinary was called directly
+only to confirm asset types and that unsigned URLs fail, and to clean up.
+Test images were synthetic skin-tone PNG/JPEGs with a red blotch. Face blur
+used Cloudinary's own `samples/man-portrait`, uploaded through the app.
+
+**Result: 43 of 43 checks pass** (42 in the main run plus the expiry check).
+
+- **Patient pre-visit upload** (`/api/visit/[token]/photos`, after DOB check):
+  stored as an `authenticated` asset with a random `brevicor/<uuid>` id. The
+  raw Cloudinary URL without a signature is refused: `authenticated` URL 401,
+  `upload` URL 404.
+- **Physician upload and live-capture upload** (`in_call_capture`, JPEG) both work.
+- **Every view renders through the signed-URL route** (HTTP 200, `image/*`):
+  - Original colors, Photo clarity, Sharpen detail, Color balance
+  - Lesion zoom with automatic focus (600x600) and with manual pan
+  - Wound outline (Cloudinary base image, plus the client-side trace checked
+    in the browser)
+  - Region crop (exactly 400x380), zoom 1x to 4x (600x600 crops from 2x)
+  - Face blur (face visibly blurred), text annotation
+  - Low-data mode: `q_auto:eco`, 640x480, 5.8 KB vs 28 KB normal
+- **Link lifetime and audience:** signed photo links are refused after 5
+  minutes (403 at 306 s), for anonymous requests (401) and for a physician of
+  another clinic (404). Another clinic can't obtain signed links (404).
+- **Notes and diagnosis** save and persist. **Progress history** spans visits
+  for the same `patient_ref`; tested with a second synthetic visit.
+- **Save to chart:** creates a DocumentReference on demo-mock (in the EHR) and
+  a `local-only` one on demo-clinicsoft. On both, its attachment link opens
+  (JPEG) only for a signed-in physician of that clinic: anonymous 401, other
+  clinic 404.
+- **Headless Chromium (Playwright) on the consult page:** 10 photo-panel and 9
+  history images loaded from `/api/media/photos/...`, no failed image
+  responses, no console errors, and no `res.cloudinary.com` URL in the page.
+  The wound outline traced the blotch margin on the private image.
+
+Bugs found and fixed, each with a regression test in
+`apps/web/tests/cloudinary/delivery.test.ts`:
+
+1. **Text annotation was broken.** Overlay text reached the server with raw
+   spaces, and the transformation check rejected it (400). `transformationFor`
+   now takes the transformation exactly as url-gen percent-encodes it in a URL.
+2. **A signed photo link worked for anyone holding it** during its 5 minutes.
+   The media route now also requires a signed-in physician of the photo's
+   clinic, using a lightweight membership lookup (`physicianClinicIds`, no FHIR call).
+3. **`f_auto` always fell back to JPEG,** because the media route didn't
+   forward the browser's `Accept` header. It now does, and adds `Vary: Accept, Cookie`.
+   Browsers now get WebP/AVIF where Cloudinary chooses it.
+
+Cleanup: all 18 test assets were deleted from Cloudinary, leaving 0
+authenticated `brevicor/` assets. The test photo rows, the 6 test
+DocumentReferences, the synthetic visits, and the temporary outsider
+physicians and clinics were removed from Supabase. Audit events and the
+Encounters opened by "Save to chart" on the demo visits remain. The demo-mock
+visit used for the patient upload has a rotated invitation link.
+
+Renders and browser screenshots are in `apps/web/verification-output/photos/`
+(gitignored).

@@ -39,6 +39,23 @@ export async function authenticate(email: string, password: string) {
   }
   return true;
 }
+/** Clinics where the signed-in user is a physician ([] when signed out). No FHIR call: cheap enough per image. */
+export const physicianClinicIds = cache(async (): Promise<string[]> => {
+  if (!isSupabaseAuth()) return [];
+  const client = await sessionClient();
+  const {
+    data: { user },
+    error,
+  } = await client.auth.getUser();
+  if (error || !user) return [];
+  const { data, error: membershipError } = await client
+    .from('clinic_members')
+    .select('clinic_id')
+    .eq('user_id', user.id)
+    .eq('role', 'physician');
+  if (membershipError) throw new Error('Clinic membership unavailable');
+  return (data ?? []).map((r) => r.clinic_id as string);
+});
 export const getDoctor = cache(async (): Promise<DoctorSession | null> => {
   if (!isSupabaseAuth()) return null;
   const client = await sessionClient(),

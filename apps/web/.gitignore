@@ -7,3 +7,6 @@ next-env.d.ts
 .env*.local
 certificates/
 .vercel
+
+# Local verification renders (never committed)
+/verification-output/

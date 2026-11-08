@@ -164,5 +164,8 @@ export function getEnhancedImage(
  * (usePhotoUrls); the browser never builds Cloudinary URLs.
  */
 export function transformationFor(controls: TransformControls | DiagnosticFilter): string {
-  return getEnhancedImage('placeholder', controls).transformation.toString();
+  // Taken from the URL url-gen would build, so overlay text is percent-encoded
+  // exactly as before (Transformation.toString() leaves spaces raw).
+  const url = getEnhancedImage('placeholder', controls).toURL();
+  return /\/image\/upload\/(.+)\/placeholder(?:\?.*)?$/.exec(url)?.[1] ?? '';
 }

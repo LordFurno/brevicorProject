@@ -98,7 +98,9 @@ ids (`brevicor/<uuid>`, no patient, visit or clinic data). Uploads are signed on
 the server: set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` and
 `CLOUDINARY_API_SECRET` (server-only; the unsigned preset is no longer used).
 The browser never sees a Cloudinary URL: it gets 5-minute signed Brevicor URLs
-(`/api/media/photos/<id>?g=...`) for each view, and the media route fetches the
+(`/api/media/photos/<id>?g=...`) for each view, which also require a signed-in
+physician of the photo's clinic (anonymous 401, other clinics 404); the media
+route forwards the browser's `Accept` (so `f_auto` serves WebP/AVIF), fetches the
 signed Cloudinary URL and streams the image (`Cache-Control: private, no-store`).
 "Save to chart" files a stable `/api/media/photos/<id>` link that opens only for
 a signed-in physician of the photo's clinic. JPEG, PNG, WebP, and

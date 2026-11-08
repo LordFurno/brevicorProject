@@ -6,13 +6,17 @@ const auth = vi.hoisted(() => ({
   owns: true,
   visit: { id: 'delivery-visit', clinicId: 'delivery-clinic', patientRef: 'Patient/delivery', practitionerRef: 'Practitioner/d1', status: 'in_progress' },
 }));
-vi.mock('@/lib/auth/doctor', () => ({ getDoctor: async () => auth.doctor, ownsVisit: () => auth.owns }));
+vi.mock('@/lib/auth/doctor', () => ({
+  getDoctor: async () => auth.doctor,
+  physicianClinicIds: async () => auth.doctor?.memberships.map((m) => m.clinicId) ?? [],
+  ownsVisit: () => auth.owns,
+}));
 vi.mock('@/lib/visits/store', () => ({ getVisitStore: () => ({ get: async () => auth.visit }) }));
 
 import { GET as media } from '../../src/app/api/media/photos/[photoId]/route';
 import { POST as signUrls } from '../../src/app/api/doctor/visits/[id]/photos/urls/route';
 import { transformationFor } from '../../src/components/cloudinary/enhancements';
-import { signedDeliveryUrl } from '../../src/media/cloudinary';
+import { signedDeliveryUrl, TRANSFORMATION_RE } from '../../src/media/cloudinary';
 import { PHOTO_URL_TTL_MS, signedPhotoUrl, verifyPhotoGrant } from '../../src/media/photo-urls';
 import { addPhoto } from '../../src/media/visit-photos';
 
@@ -53,13 +57,22 @@ describe('short-lived photo URLs', () => {
 
   it('composes transformations in the browser without any asset id', () => {
     const t = transformationFor({ filter: 'raw', lowDataMode: true });
-    expect(t).toContain('q_auto:eco');
+    expect(t).toBe('c_limit,h_640,w_640/c_limit,h_640,w_640/f_auto/q_auto:eco');
     expect(t).not.toContain('placeholder');
+  });
+
+  it('regression: annotation text is percent-encoded, so the server accepts and signs it', () => {
+    const t = transformationFor({ filter: 'raw', annotation: { enabled: true, text: 'Margin 2 cm, review in 1 week', color: 'yellow', position: 'north_west' } });
+    expect(t).toContain('l_text:Arial_32_bold:Margin%202%20cm%252C%20review%20in%201%20week');
+    expect(t).not.toContain(' ');
+    expect(TRANSFORMATION_RE.test(t)).toBe(true);
+    expect(() => signedDeliveryUrl('brevicor/asset-1', 7, t)).not.toThrow();
   });
 });
 
 describe('media route', () => {
   it('streams the photo for a valid grant, privately, without revealing the Cloudinary URL', async () => {
+    auth.doctor = { clinicId: 'delivery-clinic', memberships: [{ clinicId: 'delivery-clinic' }] };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('jpeg-bytes', { headers: { 'content-type': 'image/jpeg' } }));
     const res = await media(new Request(`http://localhost${signedPhotoUrl(PHOTO, 'f_auto')}`), params(PHOTO));
     expect(res.status).toBe(200);
@@ -69,7 +82,26 @@ describe('media route', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/v7/brevicor/asset-1');
   });
 
+  it("regression: forwards the browser's Accept header so f_auto can serve WebP/AVIF", async () => {
+    auth.doctor = { clinicId: 'delivery-clinic', memberships: [{ clinicId: 'delivery-clinic' }] };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('avif', { headers: { 'content-type': 'image/avif' } }));
+    const res = await media(new Request(`http://localhost${signedPhotoUrl(PHOTO, 'f_auto')}`, { headers: { Accept: 'image/avif,image/webp,*/*' } }), params(PHOTO));
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Accept')).toBe('image/avif,image/webp,*/*');
+    expect(res.headers.get('Content-Type')).toBe('image/avif');
+    expect(res.headers.get('Vary')).toContain('Accept');
+  });
+
+  it('regression: a valid signed link alone is not enough (anonymous 401, another clinic 404)', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    const url = `http://localhost${signedPhotoUrl(PHOTO, 'f_auto')}`;
+    expect((await media(new Request(url), params(PHOTO))).status).toBe(401);
+    auth.doctor = { clinicId: 'elsewhere', memberships: [{ clinicId: 'elsewhere' }] };
+    expect((await media(new Request(url), params(PHOTO))).status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('refuses expired or foreign grants', async () => {
+    auth.doctor = { clinicId: 'delivery-clinic', memberships: [{ clinicId: 'delivery-clinic' }] };
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     const expired = signedPhotoUrl(PHOTO, 'f_auto', Date.now() - PHOTO_URL_TTL_MS - 1);
     expect((await media(new Request(`http://localhost${expired}`), params(PHOTO))).status).toBe(403);
