@@ -51,7 +51,11 @@ export type EventType =
   | 'photo_updated'
   | 'notification_sent'
   | 'notification_failed'
-  | 'notification_skipped';
+  | 'notification_skipped'
+  | 'encounter_linked'
+  | 'encounter_failed'
+  | 'photo_charted'
+  | 'photo_chart_failed';
 export interface VisitEvent {
   type: EventType;
   actor: 'patient' | 'physician' | 'system';

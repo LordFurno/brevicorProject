@@ -1,7 +1,8 @@
 import 'server-only';
 import type { Patient } from 'fhir/r4';
 import type { GatewayContext } from '@/lib/clinical/gateway';
-import { gatewayRead } from '@/lib/clinical/gateway';
+import { GatewayError, gatewayRead } from '@/lib/clinical/gateway';
+import { ensureEncounter, type LinkedEncounter } from '@/lib/clinical/write';
 import { appLink, notifyVisit, scheduleNotification } from '@/lib/notify';
 import { addDays, zonedDate } from '@/lib/time';
 import { getVisitStore, type VisitStore } from './store';
@@ -169,6 +170,46 @@ export async function admitVisit(v: Visit, now = Date.now(), store = getVisitSto
   });
   return result?.visit ?? null;
 }
+/** Audit code for a failed EHR write: the HTTP status only, never a message. */
+export function writeErrorCode(e: unknown) {
+  return e instanceof GatewayError ? `gateway:${e.status}` : 'gateway:unavailable';
+}
+
+/**
+ * After admitting: open the visit's FHIR Encounter (conditional create, so a
+ * second admit or retry reuses it) and remember it on the visit. A failed
+ * write is recorded as an event and never blocks the consultation. Ending a
+ * call never touches this Encounter.
+ */
+export async function linkEncounter(
+  v: Visit,
+  ctx: GatewayContext,
+  store = getVisitStore(),
+  create: (v: Visit, ctx: GatewayContext) => Promise<LinkedEncounter> = ensureEncounter,
+): Promise<Visit> {
+  if (v.encounterRef) return v;
+  try {
+    const encounter = await create(v, ctx);
+    const result = await store.mutate(v.clinicId, v.id, (current) =>
+      !current || current.encounterRef
+        ? null
+        : {
+            visit: { ...current, encounterRef: encounter.ref },
+            events: [{ type: 'encounter_linked', actor: 'physician', meta: { result: encounter.result, syncStatus: encounter.syncStatus } }],
+          },
+    );
+    return result?.visit ?? (await store.get(v.clinicId, v.id)) ?? v;
+  } catch (e) {
+    console.error('[visits] encounter write failed:', writeErrorCode(e));
+    await store
+      .mutate(v.clinicId, v.id, (current) =>
+        current ? { visit: current, events: [{ type: 'encounter_failed', actor: 'physician', meta: { errorCode: writeErrorCode(e) } }] } : null,
+      )
+      .catch(() => console.error('[visits] could not record the failed encounter write'));
+    return v;
+  }
+}
+
 export async function endVisit(v: Visit, now = Date.now(), store = getVisitStore()) {
   const result = await store.mutate(v.clinicId, v.id, (current) =>
     current &&

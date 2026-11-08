@@ -4,8 +4,9 @@ import type { Appointment } from 'fhir/r4';
 import { SupabaseVisitStore } from '../../src/lib/visits/store';
 import { syncVisits, defaultSyncRange } from '../../src/lib/visits/sync';
 import { appointmentVisitId } from '../../src/lib/visits/tokens';
-import { checkInAndGetStatus, rotateInvitation, verifyPatient } from '../../src/lib/visits/service';
-import { getPhotos, getHistory, addPhoto, updatePhoto } from '../../src/media/visit-photos';
+import { checkInAndGetStatus, linkEncounter, rotateInvitation, verifyPatient } from '../../src/lib/visits/service';
+import { getPhotos, getHistory, addPhoto, updatePhoto, linkPhotoDocument } from '../../src/media/visit-photos';
+import { GatewayError } from '../../src/lib/clinical/gateway';
 import type { Visit } from '../../src/lib/visits/types';
 const configured = !!(process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY);
 describe.skipIf(!configured)(
@@ -132,6 +133,37 @@ describe.skipIf(!configured)(
       ).toHaveLength(1);
       expect(await getHistory({ ...v, clinicId: 'unrelated-clinic' })).toHaveLength(0);
       expect(await getHistory({ ...v, patientRef: 'Patient/other' })).toHaveLength(0);
+    });
+    it('records the EHR Encounter on the visit, and a failed write only as an event', async () => {
+      const failing = await linkEncounter(v, { clinicId: clinic }, store, async () => {
+        throw new GatewayError(501);
+      });
+      expect(failing.encounterRef).toBeUndefined();
+      const linked = await linkEncounter(v, { clinicId: clinic }, store, async () => ({
+        ref: 'Encounter/enc-memory-test',
+        result: 'created',
+        syncStatus: 'local-only',
+      }));
+      expect(linked.encounterRef).toBe('Encounter/enc-memory-test');
+      expect((await store.get(clinic, v.id))!.encounterRef).toBe('Encounter/enc-memory-test');
+      const { data } = await db.from('visit_events').select('type,meta').eq('clinic_id', clinic).eq('visit_id', v.id).in('type', ['encounter_linked', 'encounter_failed']).order('at');
+      expect(data).toEqual([
+        { type: 'encounter_failed', meta: { errorCode: 'gateway:501' } },
+        { type: 'encounter_linked', meta: { result: 'created', syncStatus: 'local-only' } },
+      ]);
+      v = (await store.get(clinic, v.id))!;
+    });
+    it('links a photo to its chart DocumentReference once, for the assigned physician only', async () => {
+      const photo = { id: crypto.randomUUID(), publicId: 'synthetic/chart', createdAt: new Date().toISOString(), notes: '', source: 'in_call_capture' as const };
+      await addPhoto(v, photo, 'physician');
+      await expect(linkPhotoDocument({ ...v, practitionerRef: 'Practitioner/someone-else' }, photo.id, 'DocumentReference/x', 'ehr')).rejects.toThrow();
+      const first = await linkPhotoDocument(v, photo.id, 'DocumentReference/doc-1', 'local-only');
+      const again = await linkPhotoDocument(v, photo.id, 'DocumentReference/doc-2', 'local-only');
+      expect(first?.documentRef).toBe('DocumentReference/doc-1');
+      expect(again?.documentRef).toBe('DocumentReference/doc-1'); // first link wins
+      expect((await getPhotos(v)).find((p) => p.id === photo.id)?.documentRef).toBe('DocumentReference/doc-1');
+      const { data } = await db.from('visit_events').select('meta').eq('clinic_id', clinic).eq('visit_id', v.id).eq('type', 'photo_charted');
+      expect(data).toEqual([{ meta: { photoId: photo.id, syncStatus: 'local-only' } }]);
     });
     it('rejects cross-clinic photo references and PHI audit fields in the database', async () => {
       const { error } = await db.from('visit_photos').insert({

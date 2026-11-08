@@ -175,6 +175,11 @@ scripts/{seed-contacts,notify-test}.ts, supabase/migrations/20261110000000_notif
 - Physician Auth uses the same Supabase users and `clinic_members` as the gateway.
   Forward their token for clinical reads and presence. Sync, DOB verification and
   notifications use `INTERNAL_SERVICE_TOKEN` plus explicit clinic context.
+- Clinical write-back goes through the gateway with the physician's token:
+  admitting conditional-creates the visit's Encounter (keyed by appointment,
+  saved as `visits.encounter_ref`); "Save to chart" files a photo as a
+  DocumentReference (`visit_photos.document_ref`). A failed write is a
+  `*_failed` visit event and never blocks the visit.
 - Invitation hashes are SHA-256. Rotation requires fresh DOB verification; a
   separate signed credential lets an already joined call finish. Appointment
   cancellation is tracked independently from communication status. Ending a call

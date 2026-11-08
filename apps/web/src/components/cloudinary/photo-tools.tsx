@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { Camera, Upload, ImagePlus, Download } from 'lucide-react';
+import { Camera, Upload, ImagePlus, Download, FileCheck2 } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cloudName, uploadPreset } from './config';
 import { getEnhancedImage } from './enhancements';
@@ -11,7 +11,7 @@ import { pixelCrop } from './region-geometry';
 import { captureVideoFrame, photoFilename } from './capture-frame';
 import type { DiagnosticFilter, NormalizedRect, CropRect } from './types';
 
-interface Photo { width?: number; height?: number; version?: number; id: string; publicId: string; createdAt: string; notes: string; diagnosis?: string }
+interface Photo { width?: number; height?: number; version?: number; id: string; publicId: string; createdAt: string; notes: string; diagnosis?: string; documentRef?: string }
 const filters: { value: DiagnosticFilter; label: string }[] = [
   { value: 'raw', label: 'Original colors' },
   { value: 'auto_enhance', label: 'Photo clarity' },
@@ -65,7 +65,12 @@ export function PhotoTools({ remoteStream, visitId, videoRef, captureRegion, cap
         if (!Array.isArray(data.photos)) return;
         setPhotos((prev) => {
           const fresh = data.photos.filter((p) => !prev.some((existing) => existing.id === p.id));
-          return fresh.length ? [...fresh, ...prev] : prev;
+          // Keep local edits; pick up chart links saved elsewhere.
+          const merged = prev.map((p) => {
+            const server = data.photos.find((x) => x.id === p.id);
+            return server?.documentRef && !p.documentRef ? { ...p, documentRef: server.documentRef } : p;
+          });
+          return fresh.length ? [...fresh, ...merged] : merged;
         });
         if (data.photos.length) setSelected((prev) => prev || data.photos[0].id);
       } catch { /* Preserve local photos while reconnecting. */ }
@@ -105,9 +110,30 @@ export function PhotoTools({ remoteStream, visitId, videoRef, captureRegion, cap
       const result = await fetch(`/api/doctor/visits/${encodeURIComponent(visitId)}/photos`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id, notes: item.notes, diagnosis: item.diagnosis || '' }) });
       if (!result.ok) throw new Error('Could not save these notes. Please try again.');
       setSavedNote(item.id);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Save failed.'); }
+      return true;
+    } catch (e) { setError(e instanceof Error ? e.message : 'Save failed.'); return false; }
   }
   const [savedNote, setSavedNote] = useState('');
+  const [charting, setCharting] = useState('');
+  const [chartStatus, setChartStatus] = useState<Record<string, 'ehr' | 'local-only'>>({});
+
+  /** Saves the current notes, then files the photo to the patient's chart (FHIR DocumentReference). */
+  async function saveToChart(item: Photo) {
+    if (charting || item.documentRef) return;
+    setCharting(item.id);
+    try {
+      if (!(await saveNotes(item))) return;
+      const result = await fetch(`/api/doctor/visits/${encodeURIComponent(visitId)}/photos/${encodeURIComponent(item.id)}/chart`, { method: 'POST' });
+      const data = await result.json();
+      if (!result.ok || !data.photo) throw new Error(data.error || 'Could not save to the chart. Please retry.');
+      setPhotos((prev) => prev.map((p) => (p.id === item.id ? { ...p, documentRef: data.photo.documentRef } : p)));
+      if (data.syncStatus) setChartStatus((prev) => ({ ...prev, [item.id]: data.syncStatus }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save to the chart.');
+    } finally {
+      setCharting('');
+    }
+  }
 
   async function capture() {
     if (locked.current || !configured) return;
@@ -184,10 +210,17 @@ export function PhotoTools({ remoteStream, visitId, videoRef, captureRegion, cap
           </button>
           <label className="mt-3 block text-xs font-medium text-slate-600">Diagnosis / assessment<input maxLength={1000} value={item.diagnosis || ''} onChange={(e) => { setSavedNote(''); setPhotos((prev) => prev.map((p) => p.id === item.id ? { ...p, diagnosis: e.target.value } : p)); }} placeholder="Physician assessment" className={`${field} mt-1`} /></label>
           <label className="mt-3 block text-xs font-medium text-slate-600">Physician notes<textarea rows={3} value={item.notes} maxLength={10000} onChange={(e) => { setSavedNote(''); setPhotos((prev) => prev.map((p) => p.id === item.id ? { ...p, notes: e.target.value } : p)); }} placeholder="Add your observations for this photo…" className={`${field} mt-1 resize-y`} /></label>
-          <Button variant="secondary" size="sm" className="mt-2" onClick={() => void saveNotes(item)}>{savedNote === item.id ? 'Notes saved' : 'Save diagnosis & notes'}</Button>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => void saveNotes(item)}>{savedNote === item.id ? 'Notes saved' : 'Save diagnosis & notes'}</Button>
+            {item.documentRef ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700"><FileCheck2 className="size-4" /> Saved to chart{chartStatus[item.id] === 'local-only' && <span className="font-normal text-slate-500">(held by Brevicor: this clinic&apos;s EHR can&apos;t store documents yet)</span>}</span>
+            ) : (
+              <Button size="sm" loading={charting === item.id} disabled={!!charting} onClick={() => void saveToChart(item)}><FileCheck2 /> Save to chart</Button>
+            )}
+          </div>
         </article>)}
       </div>}
-      <p className="text-xs text-slate-500">Photos upload to Cloudinary. Use Save diagnosis & notes to keep your assessment in Progress history. These records are separate from the FHIR patient chart. Low-data mode affects photo downloads only.</p>
+      <p className="text-xs text-slate-500">Save diagnosis & notes keeps your assessment in Progress history. Save to chart files the photo, diagnosis and notes to the patient&apos;s chart as a document on this visit (later edits aren&apos;t sent again). Low-data mode affects photo downloads only.</p>
     </section>
   );
 }

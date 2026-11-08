@@ -81,6 +81,7 @@ export function validateEvents(events: VisitEvent[]) {
     'errorCode',
     'photoId',
     'source',
+    'syncStatus',
   ]);
   for (const e of events)
     for (const [k, v] of Object.entries(e.meta ?? {})) {

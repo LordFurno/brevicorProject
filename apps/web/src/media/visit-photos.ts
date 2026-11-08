@@ -12,6 +12,8 @@ export interface VisitPhoto {
   height?: number;
   version?: number;
   source?: 'patient_upload' | 'in_call_capture';
+  /** Set once filed to the chart ("Save to chart"). */
+  documentRef?: string;
 }
 export interface HistoryPhoto extends VisitPhoto {
   visitId: string;
@@ -37,6 +39,7 @@ type PhotoRow = {
   height?: number;
   version?: number;
   source?: 'patient_upload' | 'in_call_capture';
+  document_ref?: string | null;
   visit_id: string;
   visits?: { start: string } | null;
 };
@@ -51,6 +54,7 @@ const view = (p: PhotoRow): VisitPhoto => ({
   height: p.height,
   version: p.version,
   source: p.source,
+  documentRef: p.document_ref ?? undefined,
 });
 export async function getPhotos(v: Visit): Promise<VisitPhoto[]> {
   if (isMemory())
@@ -167,5 +171,34 @@ export async function updatePhoto(
     p_update: true,
   });
   if (error) throw new Error('Photo notes could not be saved');
+  return data ? view(data as PhotoRow) : null;
+}
+/**
+ * Records the DocumentReference a photo was filed as. Idempotent: an already
+ * filed photo keeps its first reference (and no second event is written).
+ */
+export async function linkPhotoDocument(
+  v: Visit,
+  photoId: string,
+  documentRef: string,
+  syncStatus: 'ehr' | 'local-only',
+): Promise<VisitPhoto | null> {
+  if (isMemory()) {
+    const entry = memory().find(
+      (e) => e.visit.clinicId === v.clinicId && e.visit.id === v.id && e.visit.patientRef === v.patientRef && e.photo.id === photoId,
+    );
+    if (!entry) return null;
+    entry.photo.documentRef ??= documentRef;
+    return structuredClone(entry.photo);
+  }
+  const { data, error } = await adminClient().rpc('memory_link_photo_document', {
+    p_clinic: v.clinicId,
+    p_visit: v.id,
+    p_photo: photoId,
+    p_document_ref: documentRef,
+    p_practitioner_ref: v.practitionerRef,
+    p_sync: syncStatus,
+  });
+  if (error) throw new Error('Photo chart link could not be saved');
   return data ? view(data as PhotoRow) : null;
 }

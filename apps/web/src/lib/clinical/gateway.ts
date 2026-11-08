@@ -36,6 +36,39 @@ export async function gatewayRead<T extends FhirResource>(
   if (!response.ok) throw new GatewayError(response.status);
   return response.json();
 }
+/**
+ * POST a resource through the gateway (physician token when given, so the
+ * write is attributable). `ifNoneExist` makes it a conditional create: an
+ * existing match is returned (created: false) instead of a duplicate.
+ */
+export async function gatewayCreate<T extends FhirResource>(
+  resource: T,
+  ctx: GatewayContext,
+  opts: { ifNoneExist?: string } = {},
+): Promise<{ resource: T; created: boolean }> {
+  const base = baseUrl();
+  const token = ctx.accessToken ?? process.env.INTERNAL_SERVICE_TOKEN;
+  if (!token) throw new Error('Gateway authentication is not configured');
+  const headers: Record<string, string> = {
+    Accept: 'application/fhir+json',
+    'Content-Type': 'application/fhir+json',
+    Authorization: `Bearer ${token}`,
+    'X-Clinic-Id': ctx.clinicId,
+  };
+  if (opts.ifNoneExist) headers['If-None-Exist'] = opts.ifNoneExist;
+  const response = await fetch(`${base}/${resource.resourceType}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(resource),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  });
+  if (response.status !== 201 && response.status !== 200) throw new GatewayError(response.status);
+  const body = (await response.json()) as T;
+  if (body.resourceType !== resource.resourceType || !body.id) throw new GatewayError(502);
+  return { resource: body, created: response.status === 201 };
+}
+
 export class GatewayError extends Error {
   constructor(readonly status: number) {
     super(`Gateway unavailable (${status})`);

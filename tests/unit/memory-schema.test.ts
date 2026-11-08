@@ -17,3 +17,18 @@ describe('Brevicor memory schema', () => {
       expect(sql).toContain('from public, anon, authenticated');
     });
 });
+describe('chart write-back schema', () => {
+  const writes = readFileSync(
+    new URL('../../supabase/migrations/20261112000200_memory_chart_writes.sql', import.meta.url),
+    'utf8',
+  );
+  it('audit metadata gains only the sync status, never PHI fields', () => {
+    const allowed = /meta - array\[([^\]]*)\]/.exec(writes)![1];
+    expect(allowed).toContain("'syncStatus'");
+    expect(allowed).not.toMatch(/name|dob|birth|phone|email|health|diagnosis|notes/i);
+  });
+  it('the photo/document link function is server-only', () => {
+    expect(writes).toContain('memory_link_photo_document(text,uuid,uuid,text,text,text) from public, anon, authenticated');
+    expect(writes).toContain('to service_role');
+  });
+});
