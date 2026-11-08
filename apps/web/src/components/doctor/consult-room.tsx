@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, Lock, PhoneOff } from 'lucide-react';
 import type { JoinCredentials } from '@/comms/types';
 import { Button } from '@/components/ui';
@@ -14,8 +14,18 @@ import type { ChartSummary } from '@/lib/clinical/types';
 import { formatClock } from '@/lib/time';
 import type { DoctorVisitView } from '@/lib/visits/types';
 import { PatientChart } from './patient-chart';
+import { RegionSelector } from '@/components/cloudinary/region-selector';
+import type { NormalizedRect } from '@/components/cloudinary/types';
+import { PhotoHistory } from '@/components/cloudinary/photo-history';
+import { PhotoTools } from '@/components/cloudinary/photo-tools';
 
 export function ConsultRoom({ visit, chart, clinicName }: { visit: DoctorVisitView; chart: ChartSummary; clinicName: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [region, setRegion] = useState<NormalizedRect | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [captureRequest, setCaptureRequest] = useState(0);
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [videoSize, setVideoSize] = useState({ width: 1, height: 1 });
   const router = useRouter();
   const media = useLocalMedia(true);
   const now = useNow(1000);
@@ -24,6 +34,7 @@ export function ConsultRoom({ visit, chart, clinicName }: { visit: DoctorVisitVi
   const [admittedAt, setAdmittedAt] = useState(visit.admittedAt ?? null);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [panel, setPanel] = useState<'chart' | 'photos' | 'history'>('chart');
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +53,13 @@ export function ConsultRoom({ visit, chart, clinicName }: { visit: DoctorVisitVi
   }, [visit.id]);
 
   const call = useCall(creds, media.stream);
+  useEffect(() => {
+    const el = videoRef.current;
+    const update = () => { if (el?.videoWidth) setVideoSize({ width: el.videoWidth, height: el.videoHeight }); };
+    setRegion(null); setSelecting(false);
+    update(); el?.addEventListener('resize', update); el?.addEventListener('loadedmetadata', update);
+    return () => { el?.removeEventListener('resize', update); el?.removeEventListener('loadedmetadata', update); };
+  }, [call.remote]);
   const firstName = visit.patientName.split(' ')[0];
 
   async function endVisit() {
@@ -57,6 +75,15 @@ export function ConsultRoom({ visit, chart, clinicName }: { visit: DoctorVisitVi
       {/* Left: the patient */}
       <section className="relative h-[46dvh] shrink-0 lg:h-full lg:w-1/2">
         <VideoStage
+          remoteVideoRef={videoRef}
+          overlay={call.remote && <>
+            <RegionSelector width={videoSize.width} height={videoSize.height} fit="cover" active={selecting} value={region} onChange={setRegion} />
+            <div className="absolute top-20 left-4 z-30 flex max-w-[calc(100%-2rem)] flex-wrap gap-2">
+              <Button variant="glass" size="sm" disabled={captureBusy} aria-pressed={selecting} onClick={() => { setSelecting(!selecting); setPanel('photos'); }}>Select region</Button>
+              <Button variant="glass" size="sm" loading={captureBusy} disabled={captureBusy} onClick={() => { setSelecting(false); setPanel('photos'); setCaptureRequest((n) => n + 1); }}>{captureBusy ? 'Capturing…' : region ? 'Capture selected area' : 'Capture photo'}</Button>
+              {region && <Button variant="glass" size="sm" onClick={() => { setRegion(null); setSelecting(false); }}>Clear region</Button>}
+            </div>
+          </>}
           remote={call.remote}
           local={media.stream}
           state={call.state}
@@ -94,7 +121,14 @@ export function ConsultRoom({ visit, chart, clinicName }: { visit: DoctorVisitVi
 
       {/* Right: their chart from the clinic */}
       <aside className="scroll-thin min-h-0 flex-1 overflow-y-auto rounded-t-[28px] bg-white lg:w-1/2 lg:rounded-t-none lg:rounded-l-[28px]">
-        <PatientChart chart={chart} reason={visit.reason} clinicName={clinicName} />
+        <div className="sticky top-0 z-10 flex flex-wrap gap-2 border-b border-slate-100 bg-white p-3" role="group" aria-label="Consultation panels">
+          <Button variant={panel === 'chart' ? 'primary' : 'ghost'} size="sm" aria-pressed={panel === 'chart'} onClick={() => setPanel('chart')}>Patient chart</Button>
+          <Button variant={panel === 'photos' ? 'primary' : 'ghost'} size="sm" aria-pressed={panel === 'photos'} onClick={() => setPanel('photos')}>Photos & notes</Button>
+          <Button variant={panel === 'history' ? 'primary' : 'ghost'} size="sm" aria-pressed={panel === 'history'} onClick={() => setPanel('history')}>Progress history</Button>
+        </div>
+        <div hidden={panel !== 'chart'}><PatientChart chart={chart} reason={visit.reason} clinicName={clinicName} /></div>
+        <div hidden={panel !== 'photos'}><PhotoTools key={visit.id} visitId={visit.id} remoteStream={call.remote} videoRef={videoRef} captureRegion={region} captureRequest={captureRequest} onBusyChange={setCaptureBusy} /></div>
+        {panel === 'history' && <PhotoHistory key={visit.id} visitId={visit.id} />}
       </aside>
 
       {confirmEnd && (

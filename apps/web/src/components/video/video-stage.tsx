@@ -2,12 +2,14 @@
 
 import clsx from 'clsx';
 import { Mic, MicOff, PhoneOff, Video, VideoOff, WifiOff } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { CallState } from '@/comms/types';
 import { Avatar } from '@/components/ui';
 import { VideoTile } from './video-tile';
 
 export interface VideoStageProps {
+  remoteVideoRef?: RefObject<HTMLVideoElement | null>;
+  overlay?: ReactNode;
   remote: MediaStream | null;
   local: MediaStream | null;
   state: CallState;
@@ -35,7 +37,7 @@ export function VideoStage(props: VideoStageProps) {
     <div className={clsx('relative h-full w-full overflow-hidden bg-stage text-white', props.className)}>
       {/* Remote participant */}
       {remote && remoteHasVideo ? (
-        <VideoTile stream={remote} className="absolute inset-0" />
+        <VideoTile stream={remote} videoRef={props.remoteVideoRef} className="absolute inset-0" />
       ) : (
         <div className="absolute inset-0 grid place-items-center bg-[radial-gradient(ellipse_at_center,rgba(42,156,129,0.12),transparent_65%)]">
           {/* Audio-only remote still needs an element to play sound */}
@@ -52,6 +54,8 @@ export function VideoStage(props: VideoStageProps) {
           </div>
         </div>
       )}
+
+      {props.overlay}
 
       {props.header && (
         <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 bg-linear-to-b from-black/55 to-transparent px-4 pt-4 pb-10 sm:px-5">

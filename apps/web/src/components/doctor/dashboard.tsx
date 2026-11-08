@@ -21,8 +21,8 @@ import {
 import { Logo } from '@/components/logo';
 import { Avatar, Badge, Button, Card } from '@/components/ui';
 import { useNow } from '@/components/use-now';
-import { formatDateLong, formatDateShort, formatTime, formatWait, minutesInTz } from '@/lib/time';
-import type { DoctorVisitView } from '@/lib/visits/types';
+import { formatDateLong, formatDateShort, formatTime, formatWait, minutesInTz, ymdInTz } from '@/lib/time';
+import type { DoctorScheduleView as DoctorVisitView } from '@/scheduling/doctor-view';
 
 interface DoctorInfo {
   name: string;
@@ -65,6 +65,8 @@ export function DoctorDashboard({
   initialUpcoming: DoctorVisitView[];
   demoMode: boolean;
 }) {
+  const [loadError, setLoadError] = useState('');
+  const [pollRevision, setPollRevision] = useState(0);
   const router = useRouter();
   const now = useNow(15_000);
   const [visits, setVisits] = useState(initialVisits);
@@ -83,13 +85,20 @@ export function DoctorDashboard({
   // Live waiting room (polling keeps it provider-agnostic; swap for Supabase Realtime later).
   useEffect(() => {
     let stopped = false;
+    const abort = new AbortController();
+    let loading = false;
     const load = async () => {
-      const r = await fetch('/api/doctor/visits', { cache: 'no-store' }).catch(() => null);
-      if (!r || stopped) return;
+      if (loading || stopped) return;
+      loading = true;
+      try {
+      const r = await fetch('/api/doctor/visits', { cache: 'no-store', signal: abort.signal });
+      if (stopped) return;
       if (r.status === 401) return router.replace('/doctor/login');
-      if (!r.ok) return;
+      if (!r.ok) throw new Error('Waiting room could not refresh. Your last loaded list is still shown.');
       const { visits: next, upcoming: nextUpcoming } = (await r.json()) as { visits: DoctorVisitView[]; upcoming: DoctorVisitView[] };
       if (stopped) return;
+      if (!Array.isArray(next) || !Array.isArray(nextUpcoming)) throw new Error('The waiting room returned an invalid response. Please retry.');
+      setLoadError('');
       setVisits(next);
       setUpcoming(nextUpcoming);
       // Highlight bookings that arrived since the page loaded.
@@ -107,16 +116,23 @@ export function DoctorDashboard({
         }
       }
       seen.current = new Set(next.filter((v) => v.present).map((v) => v.id));
+      } catch (e) {
+        if (!stopped) setLoadError(e instanceof Error ? e.message : 'Waiting room could not refresh. Please retry.');
+      } finally { loading = false; }
     };
+    void load();
+    window.addEventListener('focus', load);
     const id = setInterval(load, 3000);
     return () => {
       stopped = true;
+      abort.abort();
+      window.removeEventListener('focus', load);
       clearInterval(id);
     };
-  }, [router]);
+  }, [router, pollRevision]);
 
   const waiting = useMemo(
-    () => visits.filter((v) => v.status === 'waiting').sort((a, b) => Number(b.present) - Number(a.present) || a.start.localeCompare(b.start)),
+    () => visits.filter((v) => v.status === 'waiting' || v.arrivedEarly).sort((a, b) => Number(b.present) - Number(a.present) || a.start.localeCompare(b.start)),
     [visits],
   );
   const presentCount = waiting.filter((v) => v.present).length;
@@ -197,6 +213,9 @@ export function DoctorDashboard({
           )}
         </div>
 
+        {loadError && <div role="alert" className="mt-5 flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-4 text-sm text-amber-900"><span>{loadError}</span><Button variant="secondary" size="sm" onClick={() => setPollRevision((n) => n + 1)}>Retry</Button></div>}
+        <div className="mt-4 flex justify-end"><Button variant="secondary" size="sm" onClick={() => setPollRevision((n) => n + 1)}><RotateCcw /> Refresh waiting room</Button></div>
+
         {inProgress && (
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-900 px-5 py-4 text-white animate-fade-in">
             <div className="flex items-center gap-3">
@@ -215,7 +234,7 @@ export function DoctorDashboard({
         )}
 
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile icon={<CalendarDays />} label="Appointments today" value={String(visits.filter((v) => v.status !== 'cancelled').length)} />
+          <StatTile icon={<CalendarDays />} label="Appointments today" value={String(visits.filter((v) => v.status !== 'cancelled' && ymdInTz(v.start) === ymdInTz(now)).length)} />
           <StatTile icon={<Users />} label="In waiting room" value={String(presentCount)} highlight={presentCount > 0} />
           <StatTile icon={<CircleCheck />} label="Seen today" value={String(completed)} />
           <StatTile icon={<Hourglass />} label="Longest wait" value={presentCount ? formatWait(longestWait) : '—'} warn={longestWait > 15 * 60_000} />
@@ -258,11 +277,12 @@ export function DoctorDashboard({
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <p className="truncate font-medium">{v.patientName}</p>
+                          {v.arrivedEarly && <Badge tone="amber">Arrived early</Badge>}
                           {!v.present && <Badge tone="amber">Stepped away</Badge>}
                         </div>
                         <p className="mt-0.5 text-xs text-slate-500" suppressHydrationWarning>
-                          Booked {formatTime(v.start)} ·{' '}
-                          <span className={clsx(waited > 15 * 60_000 && 'font-medium text-amber-600')}>waiting {formatWait(waited)}</span>
+                          Booked {ymdInTz(v.start) !== ymdInTz(now) ? `${formatDateShort(v.start)} ` : ''}{formatTime(v.start)} ·{' '}
+                          <span className={clsx(waited > 15 * 60_000 && 'font-medium text-amber-600')}>{v.arrivedEarly ? 'Online before check-in opens' : `waiting ${formatWait(waited)}`}</span>
                         </p>
                         <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">{v.reason}</p>
                       </div>
@@ -279,7 +299,7 @@ export function DoctorDashboard({
           {/* Schedule */}
           <Card>
             <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <h2 className="font-semibold">Today’s schedule</h2>
+              <h2 className="font-semibold">Schedule & ongoing visits</h2>
               <span className="text-xs text-slate-500">{visits.length} visits</span>
             </div>
             {visits.length === 0 ? (
@@ -384,6 +404,7 @@ export function DoctorDashboard({
 }
 
 function StatusBadge({ v }: { v: DoctorVisitView }) {
+  if (v.arrivedEarly) return <Badge tone="amber">Arrived early</Badge>;
   if (v.status === 'in_progress') return <Badge tone="sky">In consultation</Badge>;
   if (v.status === 'completed') return <Badge>Completed</Badge>;
   if (v.status === 'cancelled') return <Badge tone="rose">Cancelled</Badge>;

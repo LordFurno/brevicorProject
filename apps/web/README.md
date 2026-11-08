@@ -60,3 +60,68 @@ If a search fails, the chart shows an "unavailable" banner and the visit continu
 * Invitation links are shown on screen rather than emailed/texted (see `TODO(notifications)` in `lib/visits/service.ts`).
 * Waiting-room updates use 3-second polling. Supabase Realtime is a drop-in upgrade.
 * Transcription and phone (PSTN) calls are not built yet.
+
+
+## Cloudinary photo tools
+
+The physician consultation room has **Patient chart** and **Photos & notes** panels.
+In Photos & notes, upload a JPEG/PNG/WebP/AVIF photo (up to 20 MB), or capture the
+connected patient's live video. Original colors, gentle clarity, sharpening, color
+balance, lesion zoom, manual pan, face blur, annotations, and wound-outline tracing
+reuse the original Cloudinary starter project's image processing.
+
+Set NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME and NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET in
+apps/web/.env.local (see .env.example), then restart npm run dev. The preset must
+be Unsigned in Cloudinary. No Cloudinary API secret is needed or exposed.
+
+Low-data photos use q_auto:eco and a 640px maximum edge instead of 1280px; f_auto
+selects a browser-compatible format. Original uploads are retained. This setting
+does not change video-call bandwidth or initial upload size.
+
+Notes and photo history are session-only, not attached to FHIR records. Leaving or
+reloading the consultation clears that local history, but does not delete uploaded
+Cloudinary assets. This integration does not modify any lib folder. Patient photos can be shared from the verified waiting room or live call. They
+are available to the owning physician through authenticated visit-scoped routes.
+Photo references use a bounded, 24-hour in-memory store, so use a single app server
+for this demo. A persistent store is required for multiple production instances.
+Persistent chart attachments still require additional backend work.
+
+The original create-cloudinary-react starter remains in
+cloudinaryFeatures/brevicortelemedicine for standalone development. Its dependencies
+are separate; run npm install there to use its Vite UI. The repo-root TypeScript
+project excludes this separate app.
+
+
+### Selecting and capturing regions
+
+In a live physician call, choose **Select region**, drag over the patient video,
+then choose **Capture selected area**. **Clear region** restores full-frame capture.
+The coordinates account for the visible video's center crop. Selection works with
+mouse, touch, or pen. Each capture reads the currently displayed video and uploads
+under a unique filename; wait for an upload to finish before capturing again.
+
+For a saved image, use **Select photo region**, drag over the image, and choose
+**Apply region**. **Show full photo** restores the original view without changing
+the uploaded original.
+
+
+## Camera submissions and longitudinal history
+
+The waiting room's Take photo button captures the existing camera preview. Patients
+review the still, retake/discard it, then Send to physician before the call.
+Uploaded files use the same review step.
+
+In the consultation's right panel, Photos & notes saves diagnosis/assessment and
+notes per photo. Progress history groups original-color photos by meeting and
+filters by weeks or number of meetings. It shows recorded observations, not an
+automated healing score. Historical photos are scoped to the current clinic and
+physician and matched on exact normalized patient name plus date of birth because
+the current visit model does not expose a stable patient ID. Matching should use a
+stable clinical patient ID before production.
+
+Photo references and assessments currently use a temporary in-memory adapter in
+src/media/visit-photos.ts. They reset when the app process restarts. Durable storage
+is intentionally left for the backend teammate; the UI and authenticated routes are
+ready to connect to that storage. Cloudinary stores uploaded image assets. No lib
+files are modified, and photo notes do not write FHIR records. History only shows
+photos submitted through this app; no old diagnoses or healing scores are invented.

@@ -17,7 +17,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useState, useRef, type ReactNode, type RefObject } from 'react';
 import { Logo } from '@/components/logo';
 import { Alert, Avatar, Button, Card } from '@/components/ui';
 import { useNow } from '@/components/use-now';
@@ -37,7 +37,13 @@ export function Lobby({
   media,
   left,
   onRejoin,
+  photoUpload,
+  checkInError,
+  onRetryCheckIn,
 }: {
+  checkInError?: string;
+  onRetryCheckIn?: () => void;
+  photoUpload?: (ref: RefObject<HTMLVideoElement | null>, cameraOn: boolean) => ReactNode;
   doctor: DoctorInfo;
   clinicName: string;
   start: string;
@@ -46,6 +52,7 @@ export function Lobby({
   left: boolean;
   onRejoin(): void;
 }) {
+  const cameraRef = useRef<HTMLVideoElement>(null);
   const now = useNow(1000);
 
   return (
@@ -60,7 +67,7 @@ export function Lobby({
         <Card className="overflow-hidden p-2.5 animate-fade-in">
           <div className="relative aspect-[4/3] overflow-hidden rounded-xl bg-slate-900 sm:aspect-video">
             {media.camOn && media.hasVideo ? (
-              <VideoTile stream={media.stream} muted mirror />
+              <VideoTile stream={media.stream} videoRef={cameraRef} muted mirror />
             ) : (
               <div className="grid h-full place-items-center">
                 <div className="flex flex-col items-center gap-3 text-white/70">
@@ -96,6 +103,8 @@ export function Lobby({
 
         {/* Status */}
         <div className="flex flex-col gap-5">
+          {checkInError && <Alert tone="amber"><div><p>{checkInError}</p><Button variant="secondary" size="sm" className="mt-2" onClick={onRetryCheckIn}>Retry check-in</Button></div></Alert>}
+          {photoUpload?.(cameraRef, media.camOn && media.hasVideo)}
           <Card className="p-6 animate-fade-in sm:p-7" style={{ animationDelay: '80ms' }}>
             <StatusPanel doctor={doctor} start={start} status={status} now={now} left={left} onRejoin={onRejoin} />
           </Card>
@@ -186,7 +195,7 @@ function StatusPanel({
           <div>
             <h2 className="text-xl font-semibold tracking-tight">You’re a little early</h2>
             <p className="mt-1 text-slate-600">
-              The waiting room opens at {formatTime(status.canEnterAt)}. Keep this page open and we’ll check you in automatically.
+              Your physician can see that you have arrived early. Check-in opens at {formatTime(status.canEnterAt)}. Keep this page open and we’ll check you in automatically.
             </p>
           </div>
         </div>

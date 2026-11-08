@@ -1,7 +1,7 @@
 import { getDoctor } from '@/lib/auth/doctor';
 import { json, jsonError } from '@/lib/http';
-import { ymdInTz } from '@/lib/time';
-import { listDayForPractitioner, listUpcomingForPractitioner, toDoctorView } from '@/lib/visits/service';
+import { toScheduleView } from '@/scheduling/doctor-view';
+import { loadDoctorSchedule } from '@/scheduling/doctor-schedule';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,13 +10,9 @@ export async function GET() {
   const doctor = await getDoctor();
   if (!doctor) return jsonError(401, 'Unauthorized');
   const now = Date.now();
-  const today = ymdInTz(now);
-  const [visits, upcoming] = await Promise.all([
-    listDayForPractitioner(doctor.practitioner, today),
-    listUpcomingForPractitioner(doctor.practitioner, today),
-  ]);
+  const { visits, upcoming } = await loadDoctorSchedule(doctor.practitioner, now);
   return json({
-    visits: visits.map((v) => toDoctorView(v, now)),
-    upcoming: upcoming.map((v) => toDoctorView(v, now)),
+    visits: visits.map((v) => toScheduleView(v, now)),
+    upcoming: upcoming.map((v) => toScheduleView(v, now)),
   });
 }
