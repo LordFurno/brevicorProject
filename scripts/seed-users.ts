@@ -3,7 +3,7 @@
 // Synthea Practitioners that have seeded appointments. Run after fhir:seed.
 import { FHIR_RESOURCES_TABLE } from '@/lib/fhir/providers/mock';
 import { adminClient, fail, main } from './lib/cli';
-import { demoPassword, ensureUser, setMemberships } from './lib/users';
+import { DEMO_PHYSICIANS, demoPassword, ensureUser, setMemberships } from './lib/users';
 
 const MOCK_CLINIC = 'demo-mock';
 const FHIR_CLINIC = 'hapi-public';
@@ -18,7 +18,7 @@ await main(async () => {
 
   const users = [
     {
-      email: 'physician.one@demo.brevicor.test',
+      email: DEMO_PHYSICIANS[0],
       memberships: [
         { clinicId: MOCK_CLINIC, role: 'physician' as const, practitionerRef: first },
         { clinicId: ADAPTER_CLINIC, role: 'physician' as const, practitionerRef: first },
@@ -26,7 +26,7 @@ await main(async () => {
     },
     {
       // Belongs to three clinics backed by different EHRs, so X-Clinic-Id selects one.
-      email: 'physician.two@demo.brevicor.test',
+      email: DEMO_PHYSICIANS[1],
       memberships: [
         { clinicId: MOCK_CLINIC, role: 'physician' as const, practitionerRef: second },
         { clinicId: FHIR_CLINIC, role: 'staff' as const, practitionerRef: null },
@@ -42,6 +42,7 @@ await main(async () => {
     console.log(`${user.email}: ${summary.join('; ')}`);
   }
   console.log('password: DEMO_USER_PASSWORD in .env.local. Get a token with: npm run -s fhir:token -- <email>');
+  console.log('SMS contacts for these physicians: npm run notify:contacts');
 });
 
 /** Practitioner refs ordered by how many seeded appointments they have. */

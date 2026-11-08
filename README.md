@@ -16,6 +16,12 @@ The app-facing contract is in [docs/fhir-contract.md](docs/fhir-contract.md). Ho
 a non-FHIR EHR is in [docs/adapter-guide.md](docs/adapter-guide.md). The product spec is in
 [docs/specs.md](docs/specs.md) (§2.1 and §4H).
 
+The root app also hosts the **notification service** (`/api/notify/v1`):
+SMS to physicians when a patient is waiting and they're offline, and visit
+invitations, cancellations and reschedules to patients. Contacts come only
+from FHIR, and messages carry no patient details. See
+[docs/notifications.md](docs/notifications.md).
+
 ## Requirements
 
 - Node.js 24+
@@ -41,6 +47,12 @@ Create `.env.local` (git-ignored):
 | `CLINICSOFT_BASE_URL` | for demo-clinicsoft | e.g. `http://localhost:3000/api/mock-vendors/clinicsoft/v2/practices/demo`. Use the port the gateway runs on. |
 | `DEMO_PHONE_NUMBERS` | for phone demos | Comma-separated numbers **you control**, E.164 (`+16135550123`) or 10-digit North American (`6135550123`, stored as `+1…`). |
 | `DEMO_EMAILS` | for email demos | Comma-separated addresses **you control**. The seed gives patient *n* the *n*th phone and the *n*th email: the first patients with booked appointments today, in demo-mock and ClinicSoft alike. Every other patient has no phone or email, so nobody ever contacts a Synthea-generated number or address. |
+| `APP_BASE_URL` | for notifications | The frontend's URL. Every link in a notification must be under it. |
+| `NOTIFY_SMS_PROVIDER` / `NOTIFY_EMAIL_PROVIDER` | no | `twilio`/`console` and `console`. Default `console` (logs, sends nothing). |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_SMS_FROM` | for real SMS | A Twilio API key and sending number. Setup: [docs/notifications.md](docs/notifications.md). |
+| `TWILIO_TRIAL_TEMPLATES` | Twilio trial only | `true` sends Twilio's predefined templates, because trial accounts reject custom text (572006) and text only verified numbers. Recipients then see Twilio's sample text. |
+| `NOTIFY_ONLINE_WINDOW_SECONDS`, `NOTIFY_MAX_PER_HOUR` | no | Presence window (default 60) and per-recipient hourly limit (default 20). |
+| `DEMO_PHYSICIAN_PHONE` | for SMS demos | A number **you control**, given to the demo physicians by `notify:contacts`. |
 | `FHIR_TIMEZONE` | no | Timezone used for dates in searches and stored data when they don't carry one. Default `America/Toronto`. If you change it, run a reset afterwards. |
 | `FHIR_LOG` | no | Set to `silent` to turn off gateway logs (tests do this automatically). |
 | `HAPI_FHIR_URL` | no | Tests only. Runs the conformance suite against this FHIR server. |
@@ -61,8 +73,9 @@ npm run db:push              # = supabase db push --remote
 Supabase CLI v3 targets the *local* stack by default, so the script passes
 `--remote`.
 
-The migrations create `ehr_connections`, `fhir_resources`, `clinic_members`
-and the fake EMR's `clinicsoft` schema. All have RLS enabled, and the public
+The migrations create `ehr_connections`, `fhir_resources`, `clinic_members`,
+the notification tables (`physician_contacts`, `notification_log`) and the
+fake EMR's `clinicsoft` schema. All have RLS enabled, and the public
 API roles get no access to anything but their own `clinic_members` rows. They
 also seed three clinics:
 
@@ -183,6 +196,11 @@ Both belong to several clinics, so every request needs `X-Clinic-Id`.
 
 `npm run -s fhir:token -- <email>` signs in and prints only the access token.
 
+`npm run notify:contacts` gives both physicians `DEMO_PHYSICIAN_PHONE` as their
+SMS contact, in every clinic where they are a physician. Then, with
+`npm run dev` running, `npm run notify:test -- patient_waiting` (or
+`visit_invitation`) sends a real text. See [docs/notifications.md](docs/notifications.md).
+
 Recommended: in the Supabase dashboard, turn off public sign-ups (Auth →
 Providers → Email → "Allow new users to sign up"). Self-registered accounts
 get 403 anyway, since they have no clinic, but there's no reason to allow them.
@@ -234,6 +252,14 @@ npm run typecheck
 Supabase Auth. It creates throwaway clinics and users, signs them in, and
 deletes everything afterwards.
 
+Notifications: `tests/unit/notify-*.test.ts` cover templates (no names or
+DOBs, GSM-7, length), dedupe, the link check, presence, rate limits, failure
+isolation and the Twilio error mapping. They use fake providers.
+`tests/integration/notify.test.ts` resolves patient phones through the real
+gateway for demo-mock and demo-clinicsoft, checks the database's dedupe key,
+and calls the routes with real tokens. Tests never send real messages: they
+force the console providers.
+
 `tests/conformance/provider-contract.ts` is **one** suite that every provider
 must pass. It loads a canonical fixture set into the backend and checks reads,
 every required search param, paging, errors, and writes where supported, all
@@ -276,8 +302,12 @@ lib/fhir/search.ts                    search parsing (dates/prefixes/timezones, 
 lib/fhir/validate.ts                  structural R4 validation for the gateway's resource types
 lib/fhir/{bundle,capability-statement,outcome,log,connections}.ts
 lib/supabase/admin.ts                 secret-key client (server-only)
-scripts/                              import-synthea.ts, load-clinicsoft.ts, seed-appointments.ts, reset.ts, seed-users.ts, token.ts (+ lib/)
-supabase/migrations/                  schema, seeded clinics, clinic_members, clinicsoft
+app/api/notify/v1/{events,presence}/  notification routes → lib/notify/api.ts
+lib/notify/                           service (dedupe, presence, rate limit), templates, store, request validation
+lib/notify/providers/                 NotificationChannel: twilio-sms.ts (the only Twilio import), console.ts, index.ts (selection)
+scripts/                              import-synthea.ts, load-clinicsoft.ts, seed-appointments.ts, reset.ts, seed-users.ts, token.ts,
+                                      seed-contacts.ts, notify-test.ts (+ lib/)
+supabase/migrations/                  schema, seeded clinics, clinic_members, clinicsoft, notifications
 tests/unit/, tests/golden/, tests/integration/, tests/conformance/
 ```
 
@@ -302,6 +332,11 @@ definition (`vendors/<name>.yaml`) for the adapter. See
   Next's own request logging is turned off for `/api/fhir/*` and
   `/api/mock-vendors/*` because search URLs carry patient data.
 - The only phone numbers and emails in the demo data are `DEMO_PHONE_NUMBERS` / `DEMO_EMAILS`.
+- Notifications carry no patient details (clinic name, time, link only), and
+  `notification_log` stores masked recipients and keyed hashes, never bodies
+  or numbers. Twilio has no Canadian region: its message logs (number and
+  text) are in the US. That needs a PHIPA review before production (see
+  [docs/notifications.md](docs/notifications.md)).
 - Supabase (`ca-central-1`) and Vercel functions (`yul1`, Montréal; see
   `vercel.json`) keep data in Canada. `hapi-public` is a public US test server
   holding synthetic data only. Never connect it to real patient data.

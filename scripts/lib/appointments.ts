@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Appointment } from 'fhir/r4';
 import { FHIR_RESOURCES_TABLE } from '@/lib/fhir/providers/mock';
 import { toRow } from '@/lib/fhir/providers/mock-index';
+import { MODALITY_SYSTEM } from '@/lib/fhir/modality';
 import { formatInstant, formatLocal } from '@/lib/fhir/providers/adapter/helpers';
 import { dateRange, defaultTimeZone } from '@/lib/fhir/search';
 import { CLINICSOFT_SCHEMA, withPractice, type ClinicSoftAppointment } from '@/lib/vendors/clinicsoft/rows';
@@ -9,8 +10,7 @@ import { deleteResources, fail, upsertRows } from './cli';
 import { clinicSoftLoaded, insertAll } from './clinicsoft';
 import { applyDemoContacts, pickDemoContacts } from './demo-contacts';
 
-/** How the app tells video from telephone consultations. Documented in docs/fhir-contract.md. */
-export const MODALITY_SYSTEM = 'https://brevicor.ca/fhir/CodeSystem/consultation-modality';
+export { MODALITY_SYSTEM };
 const APPOINTMENT_TYPE_SYSTEM = 'http://terminology.hl7.org/CodeSystem/v2-0276';
 
 const TODAY_SLOTS = ['09:00', '09:30', '10:00', '10:30', '11:00', '13:00', '14:00', '15:00'];

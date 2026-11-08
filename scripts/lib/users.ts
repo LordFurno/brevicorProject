@@ -20,7 +20,9 @@ export async function ensureUser(db: SupabaseClient, email: string, password: st
   return existing;
 }
 
-async function findUserByEmail(db: SupabaseClient, email: string): Promise<string | undefined> {
+export const DEMO_PHYSICIANS = ['physician.one@demo.brevicor.test', 'physician.two@demo.brevicor.test'] as const;
+
+export async function findUserByEmail(db: SupabaseClient, email: string): Promise<string | undefined> {
   for (let page = 1; ; page++) {
     const { data, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
     if (error) fail(`listing users failed: ${error.message}`);
@@ -30,19 +32,25 @@ async function findUserByEmail(db: SupabaseClient, email: string): Promise<strin
   }
 }
 
-/** Replaces the user's clinic memberships. */
+/**
+ * Replaces the user's clinic memberships. Kept memberships are updated in
+ * place, so their physician_contacts (which cascade from the membership) survive.
+ */
 export async function setMemberships(db: SupabaseClient, userId: string, memberships: MembershipInput[]): Promise<void> {
-  const removed = await db.from('clinic_members').delete().eq('user_id', userId);
-  if (removed.error) fail(`clearing memberships failed (${removed.error.code})`);
-  const inserted = await db.from('clinic_members').insert(
+  const saved = await db.from('clinic_members').upsert(
     memberships.map((m) => ({
       user_id: userId,
       clinic_id: m.clinicId,
       role: m.role,
       practitioner_ref: m.practitionerRef,
     })),
+    { onConflict: 'user_id,clinic_id' },
   );
-  if (inserted.error) fail(`saving memberships failed (${inserted.error.code}): ${inserted.error.message}`);
+  if (saved.error) fail(`saving memberships failed (${saved.error.code}): ${saved.error.message}`);
+  let stale = db.from('clinic_members').delete().eq('user_id', userId);
+  if (memberships.length > 0) stale = stale.not('clinic_id', 'in', `(${memberships.map((m) => m.clinicId).join(',')})`);
+  const removed = await stale;
+  if (removed.error) fail(`removing old memberships failed (${removed.error.code})`);
 }
 
 export function demoPassword(): string {

@@ -7,3 +7,7 @@ try {
 }
 
 process.env.FHIR_LOG ??= 'silent';
+
+// Tests never send real messages, whatever .env.local or the shell says.
+process.env.NOTIFY_SMS_PROVIDER = 'console';
+process.env.NOTIFY_EMAIL_PROVIDER = 'console';

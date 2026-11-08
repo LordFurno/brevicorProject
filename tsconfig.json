@@ -43,6 +43,7 @@
     "venv",
     "synthea-output",
     "supabase",
-    "apps"
+    "apps",
+    "cloudinaryFeatures"
   ]
 }

@@ -19,7 +19,9 @@ Full spec: `docs/specs.md`. Read the relevant section before building a feature.
   Each provider implements the same `EhrProvider` interface.
 - Video/phone and transcription providers sit behind interfaces
   (`CommsProvider`, `TranscriptionProvider`), selected in `config/providers.ts`.
-  No Twilio imports outside `src/comms/twilio/`.
+  Notification channels sit behind `NotificationChannel` (`lib/notify/providers/`).
+  No Twilio imports outside `apps/web/src/comms/twilio/` and `lib/notify/providers/`
+  (a unit test enforces the root-app side).
 - No patient-identifying info in logs, emails, SMS, or realtime messages.
 - Every query is scoped by `tenant_id` (clinic). No cross-tenant access.
 - Errors from the FHIR API are returned as FHIR `OperationOutcome` resources.
@@ -115,3 +117,39 @@ supabase/migrations/, tests/{unit,golden,integration,conformance}/
   (both also write the same appointment plan to ClinicSoft practice `demo`;
   `npm run clinicsoft:load` reloads ClinicSoft from Synthea CSV)
 - Demo logins: `npm run fhir:users`, then `TOKEN=$(npm run -s fhir:token -- physician.one@demo.brevicor.test)`
+# Notification service
+
+Physician alerts and patient invitations at `/api/notify/v1` (root app). Spec:
+`docs/specs.md` (Physician Notifications, Appointment Management). Details,
+setup and the frontend calls still to add: `docs/notifications.md`.
+
+## Rules
+- Templates (`lib/notify/templates.ts`) accept only clinic display name,
+  appointment time, modality and link. Never add a field for a name, reason,
+  DOB or contact. SMS text stays GSM-7 and fits 160 characters.
+- Patient contacts come only from FHIR `Patient.telecom` (read through the
+  gateway with the service token, `gatewayReader` in `lib/notify/api.ts`).
+  The events API rejects contact details in the request. No fallback.
+- `POST /events` is for service callers only; `POST /presence` for signed-in physicians.
+  Both use `resolveCaller()`. Errors are OperationOutcomes; failed deliveries
+  are 200 results, never thrown.
+- `notification_log` never stores bodies or full recipients: `recipient_masked`
+  for people, `recipient_key` (HMAC, `lib/notify/config.ts`) for dedupe and
+  rate limits. Unique per (clinic, dedupe_key, channel, recipient_key); the
+  row is claimed (`sending`) before the provider is called.
+- Providers throw `DeliveryError(code, detail)` with our own detail text, never
+  the provider's message (Twilio's include phone numbers). New provider = one
+  file in `lib/notify/providers/` + one registry entry + one env value.
+- Tests force `NOTIFY_*_PROVIDER=console` (`tests/setup.ts`). Never send real
+  messages from tests.
+- Twilio trial accounts reject custom text (572006). `TWILIO_TRIAL_TEMPLATES=true`
+  sends Twilio's predefined templates instead (provider `twilio-trial`). Trial demos only.
+
+## Layout
+app/api/notify/v1/{events,presence}/route.ts, lib/notify/{api,service,templates,store,request,config,phone,fhir,types}.ts,
+lib/notify/providers/{index,types,console,twilio-sms,twilio-errors}.ts, lib/fhir/modality.ts,
+scripts/{seed-contacts,notify-test}.ts, supabase/migrations/20261110000000_notifications.sql
+
+## Commands
+- Physician SMS contacts: `npm run notify:contacts` (after `fhir:users`; uses `DEMO_PHYSICIAN_PHONE`)
+- Real end-to-end send (needs `npm run dev`): `npm run notify:test -- <patient_waiting|visit_invitation|visit_cancelled|visit_rescheduled> [--clinic demo-mock] [--dedupe-key k]`

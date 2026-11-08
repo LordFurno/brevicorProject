@@ -20,7 +20,9 @@
     "fhir:reset": "tsx scripts/reset.ts",
     "fhir:users": "tsx scripts/seed-users.ts",
     "fhir:token": "tsx scripts/token.ts",
-    "clinicsoft:load": "tsx scripts/load-clinicsoft.ts"
+    "clinicsoft:load": "tsx scripts/load-clinicsoft.ts",
+    "notify:contacts": "tsx scripts/seed-contacts.ts",
+    "notify:test": "tsx scripts/notify-test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
@@ -29,6 +31,7 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "server-only": "^0.0.1",
+    "twilio": "^6.3.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

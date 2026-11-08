@@ -6,7 +6,7 @@ import { dispatch } from './dispatch';
 import { FhirError } from './outcome';
 import { createProvider } from './providers';
 
-const CLINIC_ID_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+export const CLINIC_ID_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 /** Entry point for /api/fhir/R4/*: caller -> clinic's EHR connection -> provider -> dispatch. */
 export function handleFhirRequest(req: Request, path: string[]): Promise<Response> {

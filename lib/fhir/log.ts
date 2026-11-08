@@ -29,7 +29,13 @@ export function logRequest(entry: RequestLog): void {
   write('info', { evt: 'fhir.request', ...entry });
 }
 
-export function logWarning(evt: string, fields: Record<string, string | number | string[] | null | undefined>): void {
+type LogFields = Record<string, string | number | boolean | string[] | null | undefined>;
+
+export function logInfo(evt: string, fields: LogFields): void {
+  write('info', { evt, ...fields });
+}
+
+export function logWarning(evt: string, fields: LogFields): void {
   write('warn', { evt, ...fields });
 }
 
