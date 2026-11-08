@@ -14,7 +14,7 @@ function bundleFor(resources: ClinicalResource[], patient: fhir4.Patient): FhirC
     patient,
     conditions: of<fhir4.Condition>('Condition', (r) => r.subject.reference),
     allergies: of<fhir4.AllergyIntolerance>('AllergyIntolerance', (r) => r.patient.reference),
-    medications: of<fhir4.MedicationStatement>('MedicationStatement', (r) => r.subject.reference),
+    medications: of<fhir4.MedicationRequest>('MedicationRequest', (r) => r.subject.reference),
     observations: of<fhir4.Observation>('Observation', (r) => r.subject?.reference),
     encounters: of<fhir4.Encounter>('Encounter', (r) => r.subject?.reference),
     documents: of<fhir4.DocumentReference>('DocumentReference', (r) => r.subject?.reference),

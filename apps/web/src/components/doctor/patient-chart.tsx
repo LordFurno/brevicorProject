@@ -19,7 +19,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import { Alert, Avatar, Badge, Textarea } from '@/components/ui';
-import type { ChartSummary } from '@/lib/clinical/types';
+import type { ChartSummary, SectionState } from '@/lib/clinical/types';
 import { ageFrom, formatYmd } from '@/lib/time';
 
 type Tab = 'overview' | 'history' | 'notes';
@@ -30,6 +30,8 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
   const p = chart.patient;
   const age = p.birthDate ? ageFrom(p.birthDate) : undefined;
   const critical = chart.allergies.filter((a) => a.critical);
+  const allergyState = chart.sections.allergies;
+  const showAllergies = allergyState === 'ok' && chart.allergies.length > 0;
 
   return (
     <div className="mx-auto max-w-2xl px-5 py-6 sm:px-8 sm:py-8">
@@ -47,7 +49,7 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
             {[age !== undefined && `${age} y`, p.sex, p.birthDate && `DOB ${formatYmd(p.birthDate)}`].filter(Boolean).join(' · ')}
           </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {p.healthCard && <Chip icon={<CreditCard />}>OHIP ••••{p.healthCard.replace(/\D/g, '').slice(-3)}</Chip>}
+            {p.healthCard && <Chip icon={<CreditCard />}>OHIP {maskHealthCard(p.healthCard)}</Chip>}
             {p.phone && <Chip icon={<Phone />}>{p.phone}</Chip>}
             {p.language && <Chip icon={<Languages />}>{p.language}</Chip>}
           </div>
@@ -81,14 +83,16 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
       <section
         className={clsx(
           'mt-3 rounded-2xl p-4 ring-1',
-          chart.allergies.length ? 'bg-rose-50/70 ring-rose-100' : 'bg-slate-50 ring-slate-100',
+          showAllergies ? 'bg-rose-50/70 ring-rose-100' : allergyState === 'ok' ? 'bg-slate-50 ring-slate-100' : 'bg-amber-50/70 ring-amber-100',
         )}
       >
-        <p className={clsx('flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase', chart.allergies.length ? 'text-rose-700' : 'text-slate-500')}>
-          {chart.allergies.length ? <ShieldAlert className="size-3.5" /> : <ShieldCheck className="size-3.5" />}
+        <p className={clsx('flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase', showAllergies ? 'text-rose-700' : allergyState === 'ok' ? 'text-slate-500' : 'text-amber-700')}>
+          {showAllergies || allergyState !== 'ok' ? <ShieldAlert className="size-3.5" /> : <ShieldCheck className="size-3.5" />}
           Allergies {critical.length > 0 && <span className="normal-case tracking-normal">· {critical.length} high risk</span>}
         </p>
-        {chart.allergies.length ? (
+        {allergyState !== 'ok' ? (
+          <p className="mt-1 text-sm text-amber-800">{SECTION_MESSAGE[allergyState]} Ask the patient about allergies.</p>
+        ) : showAllergies ? (
           <ul className="mt-2 flex flex-wrap gap-2">
             {chart.allergies.map((a) => (
               <li
@@ -113,7 +117,7 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
         {(
           [
             ['overview', 'Overview'],
-            ['history', `Past visits (${chart.visits.length})`],
+            ['history', chart.sections.visits === 'ok' ? `Past visits (${chart.visits.length})` : 'Past visits'],
             ['notes', 'Visit notes'],
           ] as const
         ).map(([id, label]) => (
@@ -136,7 +140,7 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
       <div key={tab} className="mt-5 animate-fade-in">
         {tab === 'overview' && (
           <div className="space-y-5">
-            <Section icon={<Stethoscope />} title="Active conditions" empty="No active conditions recorded" count={chart.conditions.length}>
+            <Section icon={<Stethoscope />} title="Active conditions" empty="No active conditions recorded" count={chart.conditions.length} state={chart.sections.conditions}>
               <ul className="divide-y divide-slate-100">
                 {chart.conditions.map((c) => (
                   <li key={c.name} className="flex items-center justify-between gap-3 py-2.5">
@@ -147,7 +151,7 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
               </ul>
             </Section>
 
-            <Section icon={<Pill />} title="Medications" empty="No active medications" count={chart.medications.length}>
+            <Section icon={<Pill />} title="Medications" empty="No active medications" count={chart.medications.length} state={chart.sections.medications}>
               <ul className="divide-y divide-slate-100">
                 {chart.medications.map((m) => (
                   <li key={m.name} className="py-2.5">
@@ -163,6 +167,7 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
               title="Latest vitals"
               empty="No vitals on file"
               count={chart.vitals.length}
+              state={chart.sections.vitals}
               aside={chart.vitals[0]?.date && <span className="text-xs text-slate-400">{formatYmd(chart.vitals[0].date)}</span>}
             >
               <div className="grid grid-cols-2 gap-2 pt-1 sm:grid-cols-3">
@@ -178,7 +183,7 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
               </div>
             </Section>
 
-            <Section icon={<FlaskConical />} title="Recent labs" empty="No recent lab results" count={chart.labs.length}>
+            <Section icon={<FlaskConical />} title="Recent labs" empty="No recent lab results" count={chart.labs.length} state={chart.sections.labs}>
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-slate-100">
                   {chart.labs.map((l) => (
@@ -203,7 +208,9 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
         )}
 
         {tab === 'history' &&
-          (chart.visits.length ? (
+          (chart.sections.visits !== 'ok' ? (
+            <Empty icon={<History />} text={SECTION_MESSAGE[chart.sections.visits]} />
+          ) : chart.visits.length ? (
             <ol className="relative space-y-5 border-l border-slate-200 pl-6">
               {chart.visits.map((v, i) => (
                 <li key={v.id ?? i} className="relative">
@@ -247,11 +254,24 @@ export function PatientChart({ chart, reason, clinicName }: { chart: ChartSummar
   );
 }
 
+const SECTION_MESSAGE: Record<Exclude<SectionState, 'ok'>, string> = {
+  unavailable: "Not available from this clinic's EHR.",
+  error: "Couldn't load from the clinic's EHR. You can continue the visit.",
+};
+
+/** "2345 678 905 AB" -> "••••905 AB" */
+function maskHealthCard(hcn: string) {
+  const [, version] = /^[\d\s]+(?:\s([A-Z]{1,2}))?$/.exec(hcn) ?? [];
+  const digits = hcn.replace(/\D/g, '');
+  return `••••${digits.slice(-3)}${version ? ` ${version}` : ''}`;
+}
+
 function Section({
   icon,
   title,
   count,
   empty,
+  state = 'ok',
   aside,
   children,
 }: {
@@ -259,6 +279,7 @@ function Section({
   title: string;
   count: number;
   empty: string;
+  state?: SectionState;
   aside?: ReactNode;
   children: ReactNode;
 }) {
@@ -268,9 +289,15 @@ function Section({
         <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 [&_svg]:size-4 [&_svg]:text-slate-400">
           {icon} {title}
         </h3>
-        {aside}
+        {state === 'ok' && aside}
       </div>
-      {count ? children : <p className="py-2 text-sm text-slate-400">{empty}</p>}
+      {state !== 'ok' ? (
+        <p className={clsx('py-2 text-sm', state === 'error' ? 'text-amber-700' : 'text-slate-400')}>{SECTION_MESSAGE[state]}</p>
+      ) : count ? (
+        children
+      ) : (
+        <p className="py-2 text-sm text-slate-400">{empty}</p>
+      )}
     </section>
   );
 }

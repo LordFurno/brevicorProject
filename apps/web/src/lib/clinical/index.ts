@@ -20,6 +20,7 @@ export async function loadChart(lookup: PatientLookup): Promise<ChartSummary> {
       matched: false,
       source: source === fhirSource ? 'fhir' : 'mock',
       error: 'Clinic records are temporarily unavailable. You can continue the visit.',
+      sections: { allergies: 'error', conditions: 'error', medications: 'error', vitals: 'error', labs: 'error', visits: 'error' },
       patient: { name: lookup.name, birthDate: lookup.dateOfBirth },
       allergies: [], conditions: [], medications: [], vitals: [], labs: [], visits: [],
     };

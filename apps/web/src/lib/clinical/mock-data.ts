@@ -3,7 +3,8 @@ import type * as fhir4 from 'fhir/r4';
 // Placeholder until the team's FHIR gateway / Supabase mock is connected.
 import type { ClinicalResource } from './map';
 
-const OHIP = 'https://health.gov.on.ca/ohip';
+// Ontario HCN system (Infoway ca-on-patient-hcn); these demo numbers are made up.
+const OHIP = 'https://fhir.infoway-inforoute.ca/NamingSystem/ca-on-patient-hcn';
 const ref = (id: string) => ({ reference: `Patient/${id}` });
 const cc = (t: string): fhir4.CodeableConcept => ({ text: t });
 
@@ -34,9 +35,9 @@ const allergy = (
   reaction: [{ manifestation: [cc(reaction)], severity }],
 });
 
-const med = (pid: string, name: string, dosage: string): fhir4.MedicationStatement => ({
-  resourceType: 'MedicationStatement', status: 'active', subject: ref(pid),
-  medicationCodeableConcept: cc(name), dosage: [{ text: dosage }],
+const med = (pid: string, name: string, dosage: string): fhir4.MedicationRequest => ({
+  resourceType: 'MedicationRequest', status: 'active', intent: 'order', subject: ref(pid),
+  medicationCodeableConcept: cc(name), dosageInstruction: [{ text: dosage }],
 });
 
 function obs(
