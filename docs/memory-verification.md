@@ -76,3 +76,67 @@ The installed-schema assertions passed: no demographic/raw-token columns, RLS on
 all three memory tables, and no public table or mutation-function grants.
 Both application builds and typechecks passed. The schema verification command is
 documented in `apps/web/README.md`; rerun it after any migration change.
+
+## EHR integration: clinical history and write-back (branch `clinical`)
+
+Verified November 8, 2026 against the linked Supabase project (ca-central-1).
+I ran a separate gateway on port 4100 and frontend on port 3101, built from
+this branch. The existing processes on 3000, 3001 and 4000 were left untouched;
+they predate this branch. The gateway ran with `NOTIFY_SMS_PROVIDER=console`, so
+no SMS was sent during this verification.
+
+### Data load
+
+Three migrations were applied: `clinicsoft_clinical`, `fhir_docstore` and
+`memory_chart_writes`. `npm run fhir:reset -- demo-mock` then imported the
+same capped history into both clinics. Both clinics hold the same counts:
+
+| | demo-mock (FHIR import) | demo-clinicsoft (CSV load) |
+| --- | --- | --- |
+| Condition | 1735 | 1735 problems |
+| AllergyIntolerance | 73 | 73 allergies |
+| MedicationRequest (last 2 years) | 211 (1505 older dropped) | 211 prescriptions |
+| Observation (vital signs/labs, latest 3 per LOINC) | 4298 | 4298 results |
+| Encounter (10 most recent per patient) | 583 | 583 |
+
+Every patient carries a synthetic Ontario HCN that fails the check digit; a
+unit test checks 5000 generated numbers. Re-sync returned
+`{"created":0,"rescheduled":1,"updated":19}` for each clinic. The two
+reschedule notifications went to the console provider only.
+
+### Automated checks
+
+- Root: 605 tests passed, none skipped. Conformance passed for the mock,
+  ClinicSoft (through `createProvider`, with the docstore fallback) and native
+  HAPI (local Docker `hapiproject/hapi`, 88 contract tests). The run also
+  covered golden tests for each new ClinicSoft mapping and code, demo-mock vs
+  demo-clinicsoft equivalence, and the docstore fallback against real
+  ClinicSoft data.
+- Equivalence: for every booked patient, each Condition, allergy,
+  MedicationRequest and Observation matches by code, dates and status.
+  Numbers match within 0.05, because Synthea's CSV rounds to one decimal.
+- Frontend: 87 tests passed, including real-Supabase checks of `encounter_ref`,
+  the `encounter_failed`/`encounter_linked` events, and an idempotent photo
+  DocumentReference link.
+- Both typechecks passed and both production builds succeeded. The
+  installed-schema SQL check (`tests/sql/memory-schema.sql`) passed, now
+  including the new RPC.
+
+### Live flow (`apps/web/scripts/verify-clinical-flow.ts`)
+
+| | demo-mock | demo-clinicsoft |
+| --- | --- | --- |
+| Chart sections | all `ok`; 8 conditions, 7 vitals, 15 labs, 10 past visits; Ontario HCN shown | identical |
+| Admit | Encounter created in the EHR (`in-progress`, `VR`, `appointment` set); `encounter_linked` event, `syncStatus: ehr` | Encounter created, tagged `local-only` in the docstore; `encounter_linked` event, `syncStatus: local-only` |
+| Save to chart | DocumentReference `docStatus: final`, `context.encounter` = the visit's Encounter, author = physician, found by `encounter` search; `photo_charted` event | Same, tagged `local-only` and merged into the ClinicSoft search |
+| End call | Visit `completed`; Encounter still `in-progress` | same |
+
+All 20 booked patients show identical chart counts in both clinics, and 6 have
+data in every section (conditions, allergies, medications, vitals, labs, past
+visits).
+
+Not covered live: an actual Cloudinary upload. `.env.local` has no
+`CLOUDINARY_API_KEY`/`CLOUDINARY_API_SECRET` yet, so the live Save to chart
+used a synthetic photo record. The signed upload, authenticated delivery and
+5-minute URLs are covered by mocked tests (`apps/web/tests/cloudinary/`). See
+`docs/compliance.md` for open items.
