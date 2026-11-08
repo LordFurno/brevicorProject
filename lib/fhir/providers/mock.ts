@@ -15,6 +15,8 @@ import { defaultTimeZone, type DateCond } from '../search';
 import { compileSearch, mockSearchParamDefs, toRow, type Clause } from './mock-index';
 
 export const FHIR_RESOURCES_TABLE = 'fhir_resources';
+/** Brevicor's own store for writes a clinic's EHR can't take (same columns as fhir_resources). */
+export const FHIR_DOCSTORE_TABLE = 'fhir_docstore';
 
 /**
  * What the mock EHR supports: the required operations from spec §4H, plus
@@ -34,19 +36,36 @@ export const MOCK_INTERACTIONS: Record<InScopeType, Interaction[]> = {
   Observation: ['read', 'search-type'],
 };
 
-/** Synthetic data in Supabase (fhir_resources), scoped to one clinic. */
+export interface MockStoreOptions {
+  /** Defaults to fhir_resources (the mock EHR). The docstore uses fhir_docstore. */
+  table?: string;
+  /** Defaults to MOCK_INTERACTIONS. */
+  interactions?: Partial<Record<InScopeType, Interaction[]>>;
+}
+
+/**
+ * Synthetic data in Supabase (fhir_resources), scoped to one clinic. The same
+ * engine backs Brevicor's docstore (fhir_docstore), see providers/fallback.ts.
+ */
 export class MockProvider implements EhrProvider {
+  private readonly table: string;
+  private readonly interactions: Partial<Record<InScopeType, Interaction[]>>;
+
   constructor(
     private readonly db: SupabaseClient,
     private readonly clinicId: string,
     private readonly timeZone = defaultTimeZone(),
-  ) {}
+    options: MockStoreOptions = {},
+  ) {
+    this.table = options.table ?? FHIR_RESOURCES_TABLE;
+    this.interactions = options.interactions ?? MOCK_INTERACTIONS;
+  }
 
   async capabilities(): Promise<Capabilities> {
     return {
-      resources: IN_SCOPE_TYPES.map((type) => ({
+      resources: IN_SCOPE_TYPES.filter((type) => this.interactions[type]?.length).map((type) => ({
         type,
-        interactions: [...MOCK_INTERACTIONS[type]],
+        interactions: [...this.interactions[type]!],
         searchParams: mockSearchParamDefs(type),
       })),
     };
@@ -139,11 +158,11 @@ export class MockProvider implements EhrProvider {
   }
 
   private rows() {
-    return this.db.from(FHIR_RESOURCES_TABLE);
+    return this.db.from(this.table);
   }
 
   private assertSupported(type: InScopeType, interaction: Interaction): void {
-    if (!MOCK_INTERACTIONS[type].includes(interaction)) {
+    if (!this.interactions[type]?.includes(interaction)) {
       throw new FhirError(501, 'not-supported', `${interaction} is not supported for ${type} at this clinic`);
     }
   }

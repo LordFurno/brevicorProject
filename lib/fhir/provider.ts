@@ -65,6 +65,11 @@ export interface ResourceCapabilities {
   interactions: Interaction[];
   /** Excludes control params (_count, _offset), which the gateway always handles. */
   searchParams: SearchParamDef[];
+  /**
+   * Interactions the gateway provides with Brevicor's docstore because the
+   * EHR can't (providers/fallback.ts). Reported in /metadata as supported-with-fallback.
+   */
+  fallback?: Interaction[];
 }
 
 export interface Capabilities {

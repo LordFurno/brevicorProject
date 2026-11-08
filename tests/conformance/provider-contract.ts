@@ -227,6 +227,60 @@ export function runProviderContract(harness: ContractHarness): void {
         expect(made.body.meta.versionId).toBe('1');
       });
 
+      it('conditional create: no match -> 201, same criteria again -> 200 with that resource', async () => {
+        if (!supports(caps, 'Encounter', 'create')) return;
+        const body = { ...encounter, appointment: [{ reference: 'Appointment/cf-appt-3' }] };
+        const headers = { 'If-None-Exist': 'appointment=Appointment/cf-appt-3' };
+        const first = await call('POST', 'Encounter', { body, headers });
+        // A persistent server (HAPI) may still hold one from an earlier run: then it is a 200 too.
+        expect([200, 201]).toContain(first.res.status);
+        if (first.res.status === 201) created.push(`Encounter/${first.body.id}`);
+        const second = await call('POST', 'Encounter', { body, headers });
+        expect(second.res.status).toBe(200);
+        expect(second.body.id).toBe(first.body.id);
+      });
+
+      it('conditional create returns the existing EHR resource instead of creating one', async () => {
+        if (!supports(caps, 'Encounter', 'create')) return;
+        const res = await call('POST', 'Encounter', {
+          body: { ...encounter, subject: { reference: 'Patient/cf-pat-1' }, appointment: [{ reference: 'Appointment/cf-appt-1' }] },
+          headers: { 'If-None-Exist': 'appointment=Appointment/cf-appt-1' },
+        });
+        expect(res.res.status).toBe(200);
+        expect(res.body.id).toBe('cf-enc-1');
+      });
+
+      it('conditional create with an unsupported criterion -> 400', async () => {
+        if (!supports(caps, 'Encounter', 'create')) return;
+        expectOutcome(await call('POST', 'Encounter', { body: encounter, headers: { 'If-None-Exist': 'not-a-param=1' } }), 400);
+      });
+
+      it('a write the EHR cannot take is stored by Brevicor (local-only), never dropped, and found by search', async () => {
+        const rc = caps.resources.find((r) => r.type === 'DocumentReference');
+        if (!rc?.fallback?.includes('create')) return; // the EHR stores it itself
+        const meta = await call('GET', 'metadata');
+        const create = meta.body.rest[0].resource
+          .find((r: { type: string }) => r.type === 'DocumentReference')
+          .interaction.find((i: { code: string }) => i.code === 'create');
+        expect(create.extension?.[0]).toEqual({ url: 'https://brevicor.ca/fhir/StructureDefinition/capability-fallback', valueCode: 'local-only' });
+
+        const made = await call('POST', 'DocumentReference', {
+          body: {
+            resourceType: 'DocumentReference',
+            status: 'current',
+            subject: { reference: 'Patient/cf-pat-1' },
+            context: { encounter: [{ reference: 'Encounter/cf-enc-1' }] },
+            content: [{ attachment: { contentType: 'image/jpeg', url: 'https://app.example/photo/1' } }],
+          },
+        });
+        expect(made.res.status).toBe(201);
+        created.push(`DocumentReference/${made.body.id}`);
+        expect(made.body.meta.tag).toContainEqual(expect.objectContaining({ system: 'https://brevicor.ca/fhir/sync-status', code: 'local-only' }));
+        expect((await call('GET', `DocumentReference/${made.body.id}`)).res.status).toBe(200);
+        // Merged with the EHR's own documents for the same encounter.
+        expect(matchIds((await call('GET', 'DocumentReference?encounter=cf-enc-1')).body).sort()).toEqual(['cf-doc-1', made.body.id].sort());
+      });
+
       it('update of a missing resource -> 404 (or update-as-create where the EHR allows it)', async () => {
         if (!supports(caps, 'Encounter', 'update')) return;
         // Native servers may allow update-as-create; only the mock forbids it.

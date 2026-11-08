@@ -141,6 +141,16 @@ async function handle(
       if (!provider.create) throw notSupported(`create is not supported for ${type} at this clinic`);
       const body = await readResourceBody(req, type);
       delete (body as { id?: string }).id; // the server assigns ids on create
+      const ifNoneExist = req.headers.get('if-none-exist');
+      if (ifNoneExist !== null) {
+        const existing = await conditionalMatch(provider, type, rc.searchParams.map((p) => p.name), ifNoneExist, log);
+        if (existing) {
+          // Conditional create matched exactly one: return it, create nothing (R4 3.1.0.8.1).
+          checkOutput(existing, type, undefined, opts);
+          log.id = existing.id;
+          return fhirJson(existing, 200, versionHeaders(existing));
+        }
+      }
       const created = await provider.create(type, body);
       checkOutput(created, type, undefined, opts);
       log.id = created.id;
@@ -161,6 +171,36 @@ async function handle(
       return fhirJson(updated, 200, versionHeaders(updated));
     }
   }
+}
+
+/**
+ * If-None-Exist: the search (same params and semantics as GET) must match
+ * nothing to create, exactly one to return it, more than one is 412.
+ */
+async function conditionalMatch(
+  provider: EhrProvider,
+  type: InScopeType,
+  supported: string[],
+  header: string,
+  log: Parameters<typeof logRequest>[0],
+): Promise<FhirResource | undefined> {
+  const query = parseControlParams(new URLSearchParams(header.replace(/^\?/, '')));
+  if (query.params.length === 0) throw new FhirError(400, 'invalid', 'If-None-Exist must contain search parameters');
+  const names = query.params.map(([name]) => splitParamName(name).base);
+  for (const name of names) {
+    if (!supported.includes(name)) {
+      throw new FhirError(400, 'not-supported', `Search parameter '${name}' is not supported for ${type} (If-None-Exist)`);
+    }
+  }
+  log.params = names;
+  const bundle = await provider.search(type, { params: query.params, count: 2, offset: 0 });
+  const matches = (bundle.entry ?? [])
+    .filter((e) => (e.search?.mode ?? 'match') === 'match' && e.resource?.resourceType === type)
+    .map((e) => e.resource as FhirResource);
+  if (matches.length > 1 || (bundle.total ?? 0) > 1) {
+    throw new FhirError(412, 'duplicate', `If-None-Exist matched more than one ${type}`);
+  }
+  return matches[0];
 }
 
 const LABELS: Record<Interaction, string> = {

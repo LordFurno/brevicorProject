@@ -78,8 +78,12 @@ sections 2.1 and 4H. Contract with the app: `docs/fhir-contract.md`.
 - Validate resources against FHIR R4 on the way in and on the way out
   (`lib/fhir/validate.ts`).
 - Unsupported operations return an `OperationOutcome`. Never silently drop
-  a write. If an EHR can't store a document, use a Brevicor docstore (not
-  built yet) and record sync status and where the authoritative copy lives.
+  a write. If an EHR can't create an Encounter or DocumentReference, the
+  gateway stores it in the Brevicor docstore (`fhir_docstore`, via
+  `FallbackProvider` in `lib/fhir/providers/fallback.ts`, which
+  `createProvider()` wraps around every provider), tagged
+  `https://brevicor.ca/fhir/sync-status|local-only`, merged into reads and
+  searches, and reported in `/metadata` as supported-with-fallback.
 - Non-FHIR EHRs are described by a vendor definition (`vendors/<name>.yaml`:
   request templates + JSONata maps) run by the adapter engine in
   `lib/fhir/providers/adapter/`. Add vendors with YAML, not code. A vendor
@@ -101,7 +105,7 @@ sections 2.1 and 4H. Contract with the app: `docs/fhir-contract.md`.
 
 ## Layout
 app/api/fhir/R4/[...path]/route.ts, lib/fhir/{gateway,auth,dispatch,provider,search,validate,bundle,
-capability-statement,outcome,log,connections}.ts, lib/fhir/providers/{index,mock,mock-index,native,http}.ts,
+capability-statement,outcome,log,connections,identifiers}.ts, lib/fhir/providers/{index,mock,mock-index,native,http,fallback}.ts,
 lib/fhir/providers/adapter/, vendors/*.yaml, lib/vendors/clinicsoft/ (fake EMR API,
 app/api/mock-vendors/clinicsoft/v2/), lib/supabase/admin.ts,
 scripts/{import-synthea,load-clinicsoft,seed-appointments,reset,seed-users,token}.ts (+ scripts/lib/),

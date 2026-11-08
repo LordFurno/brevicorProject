@@ -27,16 +27,18 @@ Everything here is enforced by `tests/conformance/provider-contract.ts`.
 | Practitioner | read, search | |
 | Organization | read, search | |
 | Appointment | read, search | |
-| Encounter | read, search | create, update |
-| DocumentReference | read, search | create |
+| Encounter | read, search, **create** (native or fallback) | update |
+| DocumentReference | read, search, **create** (native or fallback) | |
 | Condition | read, search | |
 | AllergyIntolerance | read, search | |
 | MedicationRequest | read, search | |
 | Observation | read, search | |
 
-The mock clinic (`demo-mock`) supports exactly the writes in the right-hand
-column. `hapi-public` and `demo-clinicsoft` (a non-FHIR EMR behind the adapter)
-are read-only. At `demo-clinicsoft`, Organization supports read but not search.
+The mock clinic (`demo-mock`) stores Encounter and DocumentReference creates
+in its EHR and supports Encounter update. `hapi-public` and `demo-clinicsoft`
+(a non-FHIR EMR behind the adapter) are read-only EHRs, so their creates go to
+the Brevicor docstore (see "Writes the EHR can't take" below). At
+`demo-clinicsoft`, Organization supports read but not search.
 
 URLs: `GET /{type}/{id}`, `GET /{type}?…`, `POST /{type}`, `PUT /{type}/{id}`.
 Anything else (DELETE, PATCH, `_history`, `$operations`, batch) returns 501.
@@ -158,6 +160,38 @@ patients have none. Don't fall back to anything else.
   returns **412**.
 - Bodies are validated (structure, required elements, code sets). Invalid
   ones return **400** with an issue per problem.
+
+### Conditional create
+
+`POST` with `If-None-Exist: <search params>` (e.g.
+`If-None-Exist: appointment=Appointment/123`) runs that search with GET
+semantics first. No match: the resource is created (**201**). Exactly one
+match: nothing is created and that resource is returned (**200**). More than
+one: **412**. A criterion the clinic can't search on is a **400**. Every
+clinic supports it, because the gateway evaluates it. The app opens a visit's
+Encounter this way, keyed by the appointment (every clinic can search
+Encounter by `appointment`); the Encounter also carries
+`identifier = https://brevicor.ca/fhir/sid/appointment-encounter|<appointment id>`.
+
+### Writes the EHR can't take (docstore fallback)
+
+A write is never silently dropped. When a clinic's EHR can't create an
+Encounter or DocumentReference (a read-only adapter or server), the gateway
+stores it in Brevicor's docstore (Supabase `fhir_docstore`, Canada) and:
+
+- tags it `meta.tag = https://brevicor.ca/fhir/sync-status|local-only`
+  (Brevicor holds the only, authoritative copy; nothing was sent to the EHR);
+- returns it from reads and merges it into searches for that clinic, after
+  the EHR's own results, with totals and paging that include it;
+- reports the interaction in `/metadata` as supported with fallback: the
+  `interaction` has `documentation` saying so and the extension
+  `https://brevicor.ca/fhir/StructureDefinition/capability-fallback`
+  (`valueCode: local-only`).
+
+If the docstore write fails, the response is a 5xx OperationOutcome, never a
+201. Updates aren't covered by the fallback (still 501 where the EHR can't).
+A search criterion the docstore can't evaluate is a 400, so results are never
+silently wider. Syncing local-only resources to an EHR later is not built.
 
 ## Errors
 

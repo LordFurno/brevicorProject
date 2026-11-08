@@ -483,7 +483,10 @@ appointment and patient:
 
 ## 11. Out of scope (for now)
 
-- **Writes through adapters.** Create and update return 501, and the
-  definition format has no write section yet.
-- **The document fallback store,** for EHRs that can't keep transcripts.
+- **Writes through adapters.** The definition format has no write section
+  yet. Encounter and DocumentReference creates at an adapter clinic go to the
+  Brevicor docstore instead (`lib/fhir/providers/fallback.ts`, tagged
+  `local-only`, merged into reads and searches; see docs/fhir-contract.md).
+  Other creates and all updates return 501. Pushing local-only resources to
+  the vendor later is not built.
 - **OAuth2 client credentials,** which is interface only.

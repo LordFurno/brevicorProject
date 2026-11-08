@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { describe, it } from 'vitest';
-import { FHIR_RESOURCES_TABLE, MockProvider } from '@/lib/fhir/providers/mock';
+import { createProvider } from '@/lib/fhir/providers';
+import { FHIR_RESOURCES_TABLE } from '@/lib/fhir/providers/mock';
 import { toRow } from '@/lib/fhir/providers/mock-index';
 import { FIXTURES } from './fixtures';
 import { runProviderContract } from './provider-contract';
@@ -26,7 +27,11 @@ if (!url || !key) {
       if (rows.error) throw new Error(`loading fixtures failed: ${rows.error.message}`);
 
       return {
-        provider: new MockProvider(db, clinicId),
+        // The production wiring: the mock writes Encounter/DocumentReference itself, so no fallback applies.
+        provider: createProvider(
+          { clinicId, name: 'Contract test', mode: 'mock', baseUrl: null, auth: { type: 'none' }, adapterConfig: null, readOnly: false },
+          { supabase: db },
+        ),
         async teardown() {
           // fhir_resources rows go with it (on delete cascade).
           await db.from('ehr_connections').delete().eq('clinic_id', clinicId);
