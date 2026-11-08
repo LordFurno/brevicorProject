@@ -25,9 +25,20 @@ const E164 = /^\+[1-9]\d{6,14}$/;
 const EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
 
 export function parseDemoPhones(value: string | undefined): string[] {
-  const list = splitList(value);
-  if (list.some((n) => !E164.test(n))) fail('DEMO_PHONE_NUMBERS must be comma-separated E.164 numbers, e.g. +16135550123');
-  return list;
+  return splitList(value).map((raw) => {
+    const phone = normalizePhone(raw);
+    if (!phone) fail('DEMO_PHONE_NUMBERS must be comma-separated phone numbers: E.164 (+16135550123) or 10-digit North American (6135550123)');
+    return phone;
+  });
+}
+
+/** E.164 as-is; a 10-digit (or 1 + 10-digit) North American number gets +1. Spaces, dashes, dots and brackets are ignored. */
+export function normalizePhone(raw: string): string | undefined {
+  const s = raw.replace(/[\s().-]/g, '');
+  if (E164.test(s)) return s;
+  if (/^[2-9]\d{9}$/.test(s)) return `+1${s}`;
+  if (/^1[2-9]\d{9}$/.test(s)) return `+${s}`;
+  return undefined;
 }
 
 export function parseDemoEmails(value: string | undefined): string[] {

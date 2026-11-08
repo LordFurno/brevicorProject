@@ -16,6 +16,7 @@ export function fail(message: string): never {
  */
 export async function main(body: () => Promise<void>): Promise<void> {
   try {
+    loadEnv();
     await body();
   } catch (err) {
     console.error(err instanceof CliError ? `error: ${err.message}` : err);
@@ -23,12 +24,20 @@ export async function main(body: () => Promise<void>): Promise<void> {
   }
 }
 
-export function adminClient(): SupabaseClient {
+/** Loads .env.local once (shell variables win). main() calls it before the script body runs. */
+let envLoaded = false;
+export function loadEnv(): void {
+  if (envLoaded) return;
+  envLoaded = true;
   try {
     process.loadEnvFile('.env.local');
   } catch {
     // fall back to the shell environment
   }
+}
+
+export function adminClient(): SupabaseClient {
+  loadEnv();
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SECRET_KEY;
   if (!url || !key) fail('SUPABASE_URL and SUPABASE_SECRET_KEY must be set (see .env.local)');

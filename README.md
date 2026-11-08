@@ -39,7 +39,7 @@ Create `.env.local` (git-ignored):
 | `DEMO_USER_PASSWORD` | for demo logins | Password that `fhir:users` sets on the demo physicians and `fhir:token` signs in with. |
 | `CLINICSOFT_API_KEY` | for demo-clinicsoft | Key the fake ClinicSoft API accepts (`X-API-Key`) and the adapter sends. Any random string. |
 | `CLINICSOFT_BASE_URL` | for demo-clinicsoft | e.g. `http://localhost:3000/api/mock-vendors/clinicsoft/v2/practices/demo`. Use the port the gateway runs on. |
-| `DEMO_PHONE_NUMBERS` | for phone demos | Comma-separated E.164 numbers **you control**, e.g. `+16135550123,+16135550124`. |
+| `DEMO_PHONE_NUMBERS` | for phone demos | Comma-separated numbers **you control**, E.164 (`+16135550123`) or 10-digit North American (`6135550123`, stored as `+1…`). |
 | `DEMO_EMAILS` | for email demos | Comma-separated addresses **you control**. The seed gives patient *n* the *n*th phone and the *n*th email: the first patients with booked appointments today, in demo-mock and ClinicSoft alike. Every other patient has no phone or email, so nobody ever contacts a Synthea-generated number or address. |
 | `FHIR_TIMEZONE` | no | Timezone used for dates in searches and stored data when they don't carry one. Default `America/Toronto`. If you change it, run a reset afterwards. |
 | `FHIR_LOG` | no | Set to `silent` to turn off gateway logs (tests do this automatically). |

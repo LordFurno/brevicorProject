@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { localDate, buildAppointments, MODALITY_SYSTEM, planAppointments, toClinicSoftAppointment, toFhirAppointment } from '@/scripts/lib/appointments';
-import { demoTelecom, pickDemoContacts } from '@/scripts/lib/demo-contacts';
+import { demoTelecom, normalizePhone, pickDemoContacts } from '@/scripts/lib/demo-contacts';
 import { validateResource } from '@/lib/fhir/validate';
 
 const TZ = 'America/Toronto';
@@ -100,6 +100,16 @@ describe('one plan, two EHR formats', () => {
       { email: emails[2] }, // more emails than phones: the third patient gets only an email
     ]);
     expect(pickDemoContacts(plan, [], [], now, TZ).size).toBe(0);
+  });
+
+  it('normalizes demo phone numbers to E.164 (North American 10-digit gets +1)', () => {
+    expect(normalizePhone('+16135550100')).toBe('+16135550100');
+    expect(normalizePhone('6135550100')).toBe('+16135550100');
+    expect(normalizePhone('(613) 555-0100')).toBe('+16135550100');
+    expect(normalizePhone('1-613-555-0100')).toBe('+16135550100');
+    expect(normalizePhone('+44 20 7946 0958')).toBe('+442079460958');
+    expect(normalizePhone('555-0100')).toBeUndefined();
+    expect(normalizePhone('0135550100')).toBeUndefined();
   });
 
   it('demo telecom: demo phone + email first, any other Synthea phone/email dropped', () => {
