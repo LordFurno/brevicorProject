@@ -51,7 +51,7 @@ export function runProviderContract(harness: ContractHarness): void {
         body: init.body === undefined ? undefined : typeof init.body === 'string' ? init.body : JSON.stringify(init.body),
       });
       const segments = new URL(url).pathname.slice(new URL(BASE).pathname.length + 1).split('/');
-      const res = await dispatch(req, segments, async () => provider, { baseUrl: BASE, clinicId: 'contract' });
+      const res = await dispatch(req, segments, async () => ({ provider, clinicId: 'contract' }), { baseUrl: BASE });
       expect(res.headers.get('Content-Type'), `${method} ${path}`).toMatch(/^application\/fhir\+json/);
       const body = await res.json();
       assertValidFhir(body);

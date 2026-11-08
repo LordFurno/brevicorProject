@@ -12,6 +12,8 @@ export class FhirError extends Error {
     readonly code: IssueCode,
     readonly diagnostics: string,
     readonly issues?: OperationOutcomeIssue[],
+    /** Extra response headers, e.g. WWW-Authenticate on 401. */
+    readonly headers?: Record<string, string>,
   ) {
     super(diagnostics);
     this.name = 'FhirError';
@@ -36,7 +38,7 @@ export function fhirJson(body: unknown, status = 200, headers?: HeadersInit): Re
 export function errorResponse(err: unknown): Response {
   if (err instanceof FhirError) {
     const issues = err.issues?.length ? err.issues : [issue(err.code, err.diagnostics)];
-    return fhirJson(operationOutcome(issues), err.status);
+    return fhirJson(operationOutcome(issues), err.status, err.headers);
   }
   return fhirJson(operationOutcome([issue('exception', 'Internal server error')]), 500);
 }

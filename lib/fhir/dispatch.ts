@@ -1,7 +1,7 @@
 import type { FhirResource } from 'fhir/r4';
 import { normalizeSearchBundle } from './bundle';
 import { capabilityStatement } from './capability-statement';
-import { logRequest, logWarning } from './log';
+import { logRequest, logWarning, type CallerLog } from './log';
 import { FhirError, errorCode, errorResponse, fhirJson } from './outcome';
 import { resourceCapabilities, type EhrProvider, type InScopeType, type Interaction } from './provider';
 import { ID_RE, parseControlParams, splitParamName } from './search';
@@ -13,7 +13,15 @@ const MAX_BODY_CHARS = 2_000_000;
 export interface DispatchOptions {
   /** Gateway base, e.g. https://host/api/fhir/R4 */
   baseUrl: string;
-  /** For logs only. */
+}
+
+/** Resolved per request: who is calling, for which clinic, and its EHR provider. */
+export interface RequestContext {
+  provider: EhrProvider;
+  clinicId: string;
+}
+
+interface HandlerOptions extends DispatchOptions {
   clinicId: string | null;
 }
 
@@ -31,19 +39,25 @@ type Route =
 export async function dispatch(
   req: Request,
   path: string[],
-  getProvider: () => Promise<EhrProvider>,
+  /** Authenticates and picks the clinic. Calls `identify` as soon as the caller is known, so even 403s are attributed. */
+  getContext: (identify: (caller: CallerLog) => void) => Promise<RequestContext>,
   opts: DispatchOptions,
 ): Promise<Response> {
   const started = performance.now();
-  const log: Parameters<typeof logRequest>[0] = { clinic: opts.clinicId, method: req.method, status: 0, ms: 0 };
+  const log: Parameters<typeof logRequest>[0] = { clinic: null, method: req.method, status: 0, ms: 0 };
   let res: Response;
   try {
-    const provider = await getProvider();
+    // Authentication and clinic resolution come first, so they win over routing errors.
+    const ctx = await getContext((caller) => {
+      log.caller = caller.kind;
+      log.user = caller.userId;
+    });
+    log.clinic = ctx.clinicId;
     const route = parseRoute(req.method, path);
     log.interaction = route.interaction;
     if ('type' in route) log.type = route.type;
     if ('id' in route) log.id = route.id;
-    res = await handle(req, route, provider, opts, log);
+    res = await handle(req, route, ctx.provider, { ...opts, clinicId: ctx.clinicId }, log);
   } catch (err) {
     res = errorResponse(err);
     log.issue = errorCode(err);
@@ -79,7 +93,7 @@ async function handle(
   req: Request,
   route: Route,
   provider: EhrProvider,
-  opts: DispatchOptions,
+  opts: HandlerOptions,
   log: Parameters<typeof logRequest>[0],
 ): Promise<Response> {
   const caps = await provider.capabilities();
@@ -181,7 +195,7 @@ async function readResourceBody(req: Request, type: InScopeType): Promise<FhirRe
 }
 
 /** Providers must hand back valid R4; anything else is the EHR's fault (502). */
-function checkOutput(resource: FhirResource, type: string, expectedId: string | undefined, opts: DispatchOptions): void {
+function checkOutput(resource: FhirResource, type: string, expectedId: string | undefined, opts: HandlerOptions): void {
   const issues = validateResource(resource, type);
   if (!resource.id || (expectedId !== undefined && resource.id !== expectedId)) {
     issues.push({ severity: 'error', code: 'invalid', diagnostics: 'The returned resource has the wrong id' });

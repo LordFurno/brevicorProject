@@ -3,8 +3,17 @@
  * resource contents, search values, or upstream error text.
  */
 
+export interface CallerLog {
+  kind: 'user' | 'service';
+  /** Supabase auth user id (staff, never a patient). */
+  userId?: string;
+}
+
 export interface RequestLog {
   clinic: string | null;
+  /** Who called: a signed-in user (by auth user id) or server-side code. */
+  caller?: 'user' | 'service';
+  user?: string;
   method: string;
   interaction?: string;
   type?: string;

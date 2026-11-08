@@ -36,7 +36,7 @@ async function call(method: string, path: string, init: { body?: unknown; header
   });
   const segments = new URL(url).pathname.replace('/api/fhir/R4/', '').split('/');
   const provider = init.provider ?? stubProvider();
-  const res = await dispatch(req, segments, async () => provider, { baseUrl: BASE, clinicId: 'test' });
+  const res = await dispatch(req, segments, async () => ({ provider, clinicId: 'test' }), { baseUrl: BASE });
   expect(res.headers.get('Content-Type')).toMatch(/^application\/fhir\+json/);
   return { res, body: await res.json() };
 }
@@ -82,7 +82,7 @@ describe('dispatch', () => {
     const req = new Request(`${BASE}/Patient/p1`);
     const res = await dispatch(req, ['Patient', 'p1'], async () => {
       throw new FhirError(401, 'login', 'Missing clinic credentials');
-    }, { baseUrl: BASE, clinicId: null });
+    }, { baseUrl: BASE });
     expect(res.status).toBe(401);
     expect((await res.json()).issue[0].code).toBe('login');
   });

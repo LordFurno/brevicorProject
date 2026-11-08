@@ -3,9 +3,9 @@ import type { ClinicalDataSource, PatientLookup } from './types';
 
 // Reads the chart from the team's FHIR R4 gateway (/api/fhir/R4). Contract: docs/fhir-contract.md.
 //
-// Clinic selection: the gateway currently takes an `X-Clinic-Id` header
-// (temporary, per the contract). When the gateway switches to token auth,
-// set FHIR_API_KEY and drop FHIR_CLINIC_ID; nothing else changes.
+// Auth: the gateway needs `Authorization: Bearer <token>`. FHIR_API_KEY is its
+// INTERNAL_SERVICE_TOKEN (server-to-server), and FHIR_CLINIC_ID picks the clinic
+// via `X-Clinic-Id`, which the service token requires.
 // Note: the gateway rejects unknown params (e.g. _sort) with 400, so we sort client-side in map.ts.
 
 function cfg() {

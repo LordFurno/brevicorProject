@@ -34,6 +34,8 @@ Create `.env.local` (git-ignored):
 |---|---|---|
 | `SUPABASE_URL` | yes | `https://<project-ref>.supabase.co` |
 | `SUPABASE_SECRET_KEY` | yes | Supabase **secret** key (`sb_secret_…`). Server-side only. Bypasses RLS. Never give it a `NEXT_PUBLIC_` prefix or import it into client code. |
+| `INTERNAL_SERVICE_TOKEN` | for server-side callers | Shared secret that server-side code (no logged-in user) sends as a bearer token. At least 32 characters, e.g. `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`. Service auth is off when it's unset or shorter. |
+| `DEMO_USER_PASSWORD` | for demo logins | Password that `fhir:users` sets on the demo physicians and `fhir:token` signs in with. |
 | `FHIR_TIMEZONE` | no | Timezone used for dates in searches and stored data when they don't carry one. Default `America/Toronto`. If you change it, run a reset afterwards. |
 | `FHIR_LOG` | no | Set to `silent` to turn off gateway logs (tests do this automatically). |
 | `HAPI_FHIR_URL` | no | Tests only. Runs the conformance suite against this FHIR server. |
@@ -113,25 +115,82 @@ npm run fhir:reset -- demo-mock [dir]
   marked video or telephone (see the contract doc). Re-running it on the same
   day gives the same schedule.
 
+## Authentication
+
+Every request, `/metadata` included, needs `Authorization: Bearer <token>`.
+There are two kinds of caller. Patients never have accounts and never call
+this API.
+
+| Caller | Token | Clinic |
+|---|---|---|
+| Physician / staff | Supabase Auth access token (email + password sign-in) | From their `clinic_members` rows. If they belong to several clinics, `X-Clinic-Id` picks one and must be one of theirs. |
+| Server-side code with no logged-in user (e.g. the patient DOB check) | `INTERNAL_SERVICE_TOKEN` | `X-Clinic-Id` (required) |
+
+| Problem | Response |
+|---|---|
+| No token, invalid or expired token, or `X-Clinic-Id` on its own | 401 |
+| Multi-clinic user or service token with no `X-Clinic-Id` | 400 |
+| `X-Clinic-Id` isn't one of the user's clinics, or the user has no clinic | 403 |
+| Unknown clinic (service token) | 404 |
+
+How it works:
+- Tokens are verified by `resolveCaller()` in `lib/fhir/auth.ts`. This
+  project signs tokens with ES256, so `getClaims()` checks the signature
+  locally against Supabase's public keys.
+- A token keeps working until it expires (1 hour), even after the user signs out.
+- Memberships are read on every request, so removing someone takes effect immediately.
+- Each log line records `caller` (`user`/`service`) and the user id.
+
+`clinic_members(user_id, clinic_id, practitioner_ref, role)` links a login to
+its clinics and its FHIR Practitioner. It has RLS: a signed-in user can read
+only their own rows, which is how a physician UI finds "my clinics" and "my
+Practitioner". Only the server writes memberships.
+
+### Demo users
+
+Run this after seeding appointments:
+
+```bash
+npm run fhir:users     # needs DEMO_USER_PASSWORD; safe to re-run
+```
+
+| Email | Clinics |
+|---|---|
+| `physician.one@demo.brevicor.test` | `demo-mock` (physician, linked to the Practitioner with the most seeded appointments) |
+| `physician.two@demo.brevicor.test` | `demo-mock` (physician, the second Practitioner) and `hapi-public` (staff). Needs `X-Clinic-Id`. |
+
+`npm run -s fhir:token -- <email>` signs in and prints only the access token.
+
+Recommended: in the Supabase dashboard, turn off public sign-ups (Auth →
+Providers → Email → "Allow new users to sign up"). Self-registered accounts
+get 403 anyway, since they have no clinic, but there's no reason to allow them.
+
 ## Running
 
 ```bash
 npm run dev
 ```
 
-The clinic currently comes from an `X-Clinic-Id` header. This is a temporary
-stand-in for authentication; see `clinicIdFromRequest()` in `lib/fhir/gateway.ts`.
-
 ```bash
 B=http://localhost:3000/api/fhir/R4
 # Clinic-local dates. Plain `date` gives the machine's zone (Git Bash can't do IANA zones), so use Node:
 read TODAY TOMORROW < <(node -e 'const f=d=>new Intl.DateTimeFormat("en-CA",{timeZone:"America/Toronto"}).format(d);console.log(f(new Date()),f(new Date(Date.now()+864e5)))')
 
-curl -H "X-Clinic-Id: demo-mock" "$B/metadata"
-curl -H "X-Clinic-Id: demo-mock" "$B/Appointment?date=ge$TODAY&date=lt$TOMORROW"
-curl -H "X-Clinic-Id: demo-mock" "$B/Patient/<id from an appointment's participant.actor>"
-curl -H "X-Clinic-Id: demo-mock" "$B/Appointment?practitioner=<id>&date=ge$TODAY&status=booked"
-curl -H "X-Clinic-Id: hapi-public" "$B/Patient?family=Smith&_count=5"     # same Bundle shape
+# Physician in one clinic
+T1=$(npm run -s fhir:token -- physician.one@demo.brevicor.test)
+curl -H "Authorization: Bearer $T1" "$B/metadata"
+curl -H "Authorization: Bearer $T1" "$B/Appointment?date=ge$TODAY&date=lt$TOMORROW"
+curl -H "Authorization: Bearer $T1" "$B/Appointment?practitioner=<their Practitioner id>&date=ge$TODAY&status=booked"
+curl -H "Authorization: Bearer $T1" "$B/Patient/<id from an appointment's participant.actor>"
+
+# Physician in two clinics: pick one
+T2=$(npm run -s fhir:token -- physician.two@demo.brevicor.test)
+curl -H "Authorization: Bearer $T2" -H "X-Clinic-Id: demo-mock"   "$B/Patient?_count=5"
+curl -H "Authorization: Bearer $T2" -H "X-Clinic-Id: hapi-public" "$B/Patient?family=Smith&_count=5"   # same Bundle shape
+
+# Server-side code (no user)
+SVC=$(grep ^INTERNAL_SERVICE_TOKEN= .env.local | cut -d= -f2-)
+curl -H "Authorization: Bearer $SVC" -H "X-Clinic-Id: demo-mock" "$B/Appointment/<id>"
 ```
 
 Every error is an `OperationOutcome` with `Content-Type: application/fhir+json`.
@@ -139,11 +198,15 @@ Every error is an `OperationOutcome` with `Content-Type: application/fhir+json`.
 ## Tests
 
 ```bash
-npm test                    # everything: unit + conformance
+npm test                    # everything: unit + integration + conformance
 npm run test:unit           # no network needed
 npm run test:conformance    # provider contract vs the mock (needs Supabase env)
 npm run typecheck
 ```
+
+`tests/integration/auth.test.ts` tests authentication end to end against real
+Supabase Auth. It creates throwaway clinics and users, signs them in, and
+deletes everything afterwards.
 
 `tests/conformance/provider-contract.ts` is **one** suite that every provider
 must pass. It loads a canonical fixture set into the backend and checks reads,
@@ -164,7 +227,8 @@ Never point `HAPI_FHIR_URL` at a shared server: the suite writes fixtures.
 
 ```
 app/api/fhir/R4/[...path]/route.ts   Next.js route → handleFhirRequest
-lib/fhir/gateway.ts                   clinic → ehr_connections row → provider → dispatch (server-only)
+lib/fhir/gateway.ts                   caller → clinic's ehr_connections row → provider → dispatch (server-only)
+lib/fhir/auth.ts                      resolveCaller(): Supabase access token or service token → clinic
 lib/fhir/dispatch.ts                  FHIR REST handling: routing, capability checks, validation, envelopes
 lib/fhir/provider.ts                  EhrProvider interface + capability/connection types
 lib/fhir/providers/                   mock.ts, mock-index.ts (search columns), native.ts, index.ts (mode switch)
@@ -172,9 +236,9 @@ lib/fhir/search.ts                    search parsing (dates/prefixes/timezones, 
 lib/fhir/validate.ts                  structural R4 validation for the gateway's resource types
 lib/fhir/{bundle,capability-statement,outcome,log,connections}.ts
 lib/supabase/admin.ts                 secret-key client (server-only)
-scripts/                              import-synthea.ts, seed-appointments.ts, reset.ts (+ lib/)
-supabase/migrations/                  schema + seeded clinics
-tests/unit/, tests/conformance/
+scripts/                              import-synthea.ts, seed-appointments.ts, reset.ts, seed-users.ts, token.ts (+ lib/)
+supabase/migrations/                  schema, seeded clinics, clinic_members
+tests/unit/, tests/integration/, tests/conformance/
 ```
 
 ### Adding a provider (phase 2 adapters)

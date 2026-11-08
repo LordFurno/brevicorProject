@@ -65,11 +65,12 @@ sections 2.1 and 4H. Contract with the app: `docs/fhir-contract.md`.
   is the only place that switches on mode. Nothing else knows which EHR is in use.
 - The mock provider follows the exact same contract as real providers.
   No mock-only behaviour.
-- Tenant and role come from the verified caller token, never from a header or
-  request body. Every DB query is scoped by tenant. **Current exception:** the
-  clinic is read from `X-Clinic-Id` as a temporary stand-in, isolated in
-  `clinicIdFromRequest()` (`lib/fhir/gateway.ts`, marked `TODO(auth)`). Replace
-  that function when physician auth lands.
+- Tenant and role come from the verified caller (`resolveCaller()` in
+  `lib/fhir/auth.ts`), never from a header or request body alone. Physicians
+  and staff send a Supabase access token, and their clinic comes from
+  `clinic_members`. `X-Clinic-Id` only *selects* among clinics they belong to.
+  Server-side code sends `INTERNAL_SERVICE_TOKEN` plus `X-Clinic-Id`. Patients
+  never call the FHIR API. Every DB query is scoped by tenant.
 - All errors are FHIR `OperationOutcome` resources (`lib/fhir/outcome.ts`):
   providers throw `FhirError`, and `lib/fhir/dispatch.ts` turns it into a response.
 - Validate resources against FHIR R4 on the way in and on the way out
@@ -92,10 +93,10 @@ sections 2.1 and 4H. Contract with the app: `docs/fhir-contract.md`.
 - A new provider or endpoint isn't done until conformance passes.
 
 ## Layout
-app/api/fhir/R4/[...path]/route.ts, lib/fhir/{gateway,dispatch,provider,search,validate,bundle,
+app/api/fhir/R4/[...path]/route.ts, lib/fhir/{gateway,auth,dispatch,provider,search,validate,bundle,
 capability-statement,outcome,log,connections}.ts, lib/fhir/providers/{index,mock,mock-index,native}.ts,
-lib/supabase/admin.ts, scripts/{import-synthea,seed-appointments,reset}.ts (+ scripts/lib/),
-supabase/migrations/, tests/{unit,conformance}/
+lib/supabase/admin.ts, scripts/{import-synthea,seed-appointments,reset,seed-users,token}.ts (+ scripts/lib/),
+supabase/migrations/, tests/{unit,integration,conformance}/
 
 ## Commands
 - Dev: `npm run dev`
@@ -104,3 +105,4 @@ supabase/migrations/, tests/{unit,conformance}/
 - Test (conformance vs HAPI): `docker run -d -p 8080:8080 hapiproject/hapi:latest`, then
   `HAPI_FHIR_URL=http://localhost:8080/fhir npm run test:conformance`
 - Seed / reset mock data: `npm run fhir:seed -- demo-mock` / `npm run fhir:reset -- demo-mock`
+- Demo logins: `npm run fhir:users`, then `TOKEN=$(npm run -s fhir:token -- physician.one@demo.brevicor.test)`

@@ -17,7 +17,9 @@
     "db:push": "supabase db push --remote",
     "fhir:import": "tsx scripts/import-synthea.ts",
     "fhir:seed": "tsx scripts/seed-appointments.ts",
-    "fhir:reset": "tsx scripts/reset.ts"
+    "fhir:reset": "tsx scripts/reset.ts",
+    "fhir:users": "tsx scripts/seed-users.ts",
+    "fhir:token": "tsx scripts/token.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",

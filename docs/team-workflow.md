@@ -21,8 +21,11 @@ so normal work never touches the same files.
 
 ## Integration contracts (the only places our code meets)
 - **Frontend → FHIR gateway:** HTTP only, per `docs/fhir-contract.md`. The frontend reads charts with
-  `CLINICAL_SOURCE=fhir`, `FHIR_BASE_URL=http://localhost:4000/api/fhir/R4` and `FHIR_CLINIC_ID=demo-mock`
-  (sent as the temporary `X-Clinic-Id` header). See `apps/web/src/lib/clinical/fhir-source.ts`.
+  `CLINICAL_SOURCE=fhir`, `FHIR_BASE_URL=http://localhost:4000/api/fhir/R4`, `FHIR_CLINIC_ID=demo-mock`
+  (sent as `X-Clinic-Id`) and `FHIR_API_KEY` = the gateway's `INTERNAL_SERVICE_TOKEN` (sent as
+  `Authorization: Bearer`). `X-Clinic-Id` alone gets 401. See `apps/web/src/lib/clinical/fhir-source.ts`
+  and the README's Authentication section. A signed-in physician's Supabase access token also works in
+  place of the service token.
   The chart also asks for `Condition`, `AllergyIntolerance`, `MedicationStatement` and `Observation`.
   Those sections stay empty until the gateway supports them.
 - **Frontend → Supabase:** physician Auth (email/password). Later, a `visits` table backing

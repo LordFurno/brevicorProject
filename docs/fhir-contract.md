@@ -6,8 +6,16 @@ Everything here is enforced by `tests/conformance/provider-contract.ts`.
 ## Requests
 
 - Base URL: `/api/fhir/R4`. FHIR R4 (4.0.1), JSON only (`application/fhir+json`).
-- Clinic: the `X-Clinic-Id` header. **Temporary.** This will be replaced by
-  the clinic from the authenticated physician's token.
+- Every request, `/metadata` included, needs `Authorization: Bearer <token>`:
+  - **Signed-in physician/staff:** their Supabase access token. The clinic is
+    their membership. If they belong to several clinics, send `X-Clinic-Id`
+    with one of theirs.
+  - **Server-side code with no user** (e.g. the patient DOB check): the
+    internal service token, plus `X-Clinic-Id` (required).
+  - Patients never call this API.
+- To find a physician's own FHIR Practitioner (for "my appointments"), read
+  their `clinic_members.practitioner_ref` with their Supabase session, then
+  search `Appointment?practitioner=<ref>`.
 - Discover what a clinic supports with `GET /metadata` (CapabilityStatement).
   Writes in particular vary by clinic.
 
@@ -89,9 +97,10 @@ Every error is an `OperationOutcome`.
 
 | Status | When |
 |---|---|
-| 400 | Bad search param/value, invalid resource body, id mismatch |
-| 401 | No clinic credentials |
-| 404 | Unknown clinic, unknown resource type, or resource not found |
+| 400 | Bad search param/value, invalid resource body, id mismatch, or no `X-Clinic-Id` when one is required (multi-clinic user, service token) |
+| 401 | No token, or an invalid/expired token (`WWW-Authenticate: Bearer`). `X-Clinic-Id` on its own is not enough. |
+| 403 | `X-Clinic-Id` isn't one of the user's clinics, or the account has no clinic |
+| 404 | Unknown clinic, unknown resource type, or resource not found (including resources that belong to another clinic) |
 | 406 / 415 | Non-JSON `_format` / wrong `Content-Type` |
 | 409 | Concurrent modification (retry) |
 | 412 | `If-Match` version is stale |
