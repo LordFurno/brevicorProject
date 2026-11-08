@@ -2,6 +2,7 @@ import { getDoctor, ownsVisit } from '@/lib/auth/doctor';
 import { getVisitStore } from '@/lib/visits/store';
 import { getPhotos, addPhoto, getHistory, updatePhoto } from '@/media/visit-photos';
 import { uploadPhoto } from '@/media/upload-photo';
+import { photosConfigured } from '@/media/cloudinary';
 import { json, jsonError } from '@/lib/http';
 async function authorized(id: string) {
   const doctor = await getDoctor();
@@ -17,6 +18,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (visit instanceof Response) return visit;
   try {
     return json({
+      configured: photosConfigured(),
       photos: await (new URL(req.url).searchParams.get('history') === '1'
         ? getHistory(visit)
         : getPhotos(visit)),
@@ -31,6 +33,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (visit instanceof Response) return visit;
   if (['completed', 'cancelled'].includes(visit.status))
     return jsonError(409, 'This visit has ended.');
+  if (!photosConfigured()) return jsonError(503, 'Photo uploads are not configured.');
   if ((await getPhotos(visit)).length >= 30)
     return jsonError(429, 'Photo limit reached for this visit.');
   try {

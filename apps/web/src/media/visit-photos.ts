@@ -202,3 +202,21 @@ export async function linkPhotoDocument(
   if (error) throw new Error('Photo chart link could not be saved');
   return data ? view(data as PhotoRow) : null;
 }
+/** Where a photo lives, for the media route (which does its own authorization). */
+export async function photoAsset(
+  photoId: string,
+): Promise<{ clinicId: string; patientRef: string; publicId: string; version?: number } | null> {
+  if (isMemory()) {
+    const e = memory().find((x) => x.photo.id === photoId);
+    return e ? { clinicId: e.visit.clinicId, patientRef: e.visit.patientRef, publicId: e.photo.publicId, version: e.photo.version } : null;
+  }
+  const { data, error } = await adminClient()
+    .from('visit_photos')
+    .select('clinic_id,patient_ref,cloudinary_public_id,version')
+    .eq('id', photoId)
+    .maybeSingle();
+  if (error) throw new Error('Photo unavailable');
+  return data
+    ? { clinicId: data.clinic_id, patientRef: data.patient_ref, publicId: data.cloudinary_public_id, version: data.version ?? undefined }
+    : null;
+}

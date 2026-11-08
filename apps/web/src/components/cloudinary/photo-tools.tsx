@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Camera, Upload, ImagePlus, Download, FileCheck2 } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { cloudName, uploadPreset } from './config';
-import { getEnhancedImage } from './enhancements';
+import { transformationFor } from './enhancements';
+import { usePhotoUrls, type PhotoView } from './use-photo-urls';
 import { WoundMarginView } from './wound-margin-view';
 import { RegionSelector } from './region-selector';
 import { pixelCrop } from './region-geometry';
@@ -45,7 +45,7 @@ export function PhotoTools({ remoteStream, visitId, videoRef, captureRegion, cap
   const [photoSize, setPhotoSize] = useState({ width: 1, height: 1 });
   const controller = useRef<AbortController | null>(null);
   const mounted = useRef(true);
-  const configured = Boolean(cloudName && uploadPreset);
+  const [configured, setConfigured] = useState(true);
   const photo = photos.find((p) => p.id === selected);
 
   useEffect(() => {
@@ -61,8 +61,9 @@ export function PhotoTools({ remoteStream, visitId, videoRef, captureRegion, cap
       try {
         const result = await fetch(`/api/doctor/visits/${encodeURIComponent(visitId)}/photos`, { cache: 'no-store', signal: abort.signal });
         if (!result.ok) return;
-        const data = await result.json() as { photos: Photo[] };
+        const data = await result.json() as { photos: Photo[]; configured?: boolean };
         if (!Array.isArray(data.photos)) return;
+        if (typeof data.configured === 'boolean') setConfigured(data.configured);
         setPhotos((prev) => {
           const fresh = data.photos.filter((p) => !prev.some((existing) => existing.id === p.id));
           // Keep local edits; pick up chart links saved elsewhere.
@@ -154,16 +155,20 @@ export function PhotoTools({ remoteStream, visitId, videoRef, captureRegion, cap
   captureLatest.current = () => { void capture(); };
 
   const privacy = { blurFaces, shelterSafetyMode: false, stripMetadata: false, signedUrl: false };
-  const url = photo ? getEnhancedImage(photo.publicId, {
-    filter, version: photo.version, region: photoRegion, lowDataMode: lowData, zoomLevel: zoom, panX, panY, useAutoGravity: autoGravity,
+  // Views are signed by the server into 5-minute Brevicor URLs; Cloudinary URLs never reach the browser.
+  const mainView: PhotoView | null = photo ? { photoId: photo.id, t: transformationFor({
+    filter, region: photoRegion, lowDataMode: lowData, zoomLevel: zoom, panX, panY, useAutoGravity: autoGravity,
     privacy, annotation: { enabled: Boolean(annotation.trim()), text: annotation, color: 'yellow', position: 'north_west' },
-  }).toURL() : '';
+  }) } : null;
+  const thumbT = transformationFor({ filter: 'raw', lowDataMode: lowData, privacy });
+  const urlOf = usePhotoUrls(visitId, [...(mainView ? [mainView] : []), ...photos.map((p) => ({ photoId: p.id, t: thumbT }))]);
+  const url = mainView ? urlOf(mainView) : '';
 
   return (
     <section className="space-y-5 p-5 sm:p-7" aria-label="Consultation photo tools">
       <div><h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900"><ImagePlus className="size-5 text-brand-600" /> Photos & physician notes</h2>
         <p className="mt-1 text-sm text-slate-500">Upload a photo or capture the patient video, then examine details with Cloudinary.</p></div>
-      {!configured && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Set the Cloudinary cloud name and unsigned upload preset in apps/web/.env.local, then restart the app.</p>}
+      {!configured && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET (server-only) in apps/web/.env.local, then restart the app.</p>}
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" disabled={busy || !configured} onClick={() => input.current?.click()} loading={busy}><Upload /> {busy ? 'Uploading…' : 'Upload photo'}</Button>
         <Button variant="secondary" disabled={busy || !configured || !remoteStream} onClick={capture}><Camera /> {captureRegion ? 'Capture selected area' : 'Capture patient frame'}</Button>
@@ -189,7 +194,7 @@ export function PhotoTools({ remoteStream, visitId, videoRef, captureRegion, cap
           {(selectingPhoto || photoRegion) && <Button variant="ghost" size="sm" onClick={() => { setSelectingPhoto(false); setPhotoRegion(undefined); setDraftRegion(null); }}>Show full photo</Button>}
         </div>
         <div className="relative overflow-hidden rounded-2xl bg-slate-950">
-          {filter === 'margin_outline' ? <WoundMarginView src={url} /> : failedUrl === url ? <p role="alert" className="p-6 text-sm text-white">Unable to load this view. Try Original colors or check your connection.</p> : <img key={url} src={url} alt="Selected consultation photo" onError={() => setFailedUrl(url)} onLoad={(e) => setPhotoSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} draggable={false} className="max-h-96 w-full object-contain" />}
+          {!url ? <p className="p-6 text-sm text-slate-300">Loading photo…</p> : filter === 'margin_outline' ? <WoundMarginView src={url} /> : failedUrl === url ? <p role="alert" className="p-6 text-sm text-white">Unable to load this view. Try Original colors or check your connection.</p> : <img key={url} src={url} alt="Selected consultation photo" onError={() => setFailedUrl(url)} onLoad={(e) => setPhotoSize({ width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight })} draggable={false} className="max-h-96 w-full object-contain" />}
           {selectingPhoto && <RegionSelector width={photoSize.width} height={photoSize.height} active value={draftRegion} onChange={setDraftRegion} />}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -200,12 +205,12 @@ export function PhotoTools({ remoteStream, visitId, videoRef, captureRegion, cap
           <Button variant="ghost" size="sm" onClick={() => { setZoom(1); setPanX(0); setPanY(0); setAutoGravity(true); setFilter('raw'); setAnnotation(''); setPhotoRegion(undefined); setSelectingPhoto(false); setDraftRegion(null); }}>Reset view</Button>
         </div>
         <label className="block text-sm font-medium text-slate-700">Photo annotation<input className={`${field} mt-1`} maxLength={160} value={annotation} onChange={(e) => setAnnotation(e.target.value)} placeholder="Optional marker shown on this photo" /></label>
-        <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-brand-700"><Download className="size-4" /> Open processed photo</a>
+        {url && <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm font-medium text-brand-700"><Download className="size-4" /> Open processed photo <span className="font-normal text-slate-500">(link works for 5 minutes)</span></a>}
       </>}
       {photos.length > 0 && <div className="space-y-3 border-t border-slate-100 pt-5"><h3 className="text-sm font-semibold text-slate-900">Physician notes & photos</h3>
         {photos.map((item) => <article key={item.id} className={`rounded-xl border p-3 ${selected === item.id ? 'border-brand-300 bg-brand-50/40' : 'border-slate-200'}`}>
           <button type="button" className="flex w-full items-center gap-3 text-left" onClick={() => { setSelected(item.id); setPhotoRegion(undefined); setSelectingPhoto(false); setDraftRegion(null); setFailedUrl(''); setZoom(1); setPanX(0); setPanY(0); setAnnotation(''); }} aria-pressed={selected === item.id}>
-            <img src={getEnhancedImage(item.publicId, { filter: 'raw', version: item.version, lowDataMode: lowData, privacy }).toURL()} alt="Recorded consultation photo" loading="lazy" className="h-16 w-20 rounded-lg bg-slate-100 object-contain" />
+            {urlOf({ photoId: item.id, t: thumbT }) ? <img src={urlOf({ photoId: item.id, t: thumbT })} alt="Recorded consultation photo" loading="lazy" className="h-16 w-20 rounded-lg bg-slate-100 object-contain" /> : <span className="h-16 w-20 rounded-lg bg-slate-100" />}
             <span className="text-sm text-slate-700"><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time><span className="block text-xs text-slate-500">View photo</span></span>
           </button>
           <label className="mt-3 block text-xs font-medium text-slate-600">Diagnosis / assessment<input maxLength={1000} value={item.diagnosis || ''} onChange={(e) => { setSavedNote(''); setPhotos((prev) => prev.map((p) => p.id === item.id ? { ...p, diagnosis: e.target.value } : p)); }} placeholder="Physician assessment" className={`${field} mt-1`} /></label>

@@ -157,3 +157,12 @@ export function getEnhancedImage(
       return applyDelivery(applyZoomAndCrop(base));
   }
 }
+
+/**
+ * The Cloudinary transformation for these controls, without any asset id or
+ * version. The server signs it into a short-lived Brevicor URL
+ * (usePhotoUrls); the browser never builds Cloudinary URLs.
+ */
+export function transformationFor(controls: TransformControls | DiagnosticFilter): string {
+  return getEnhancedImage('placeholder', controls).transformation.toString();
+}

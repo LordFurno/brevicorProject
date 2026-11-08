@@ -93,8 +93,15 @@ there is no durable outbox or automatic retry of failed keys. An operator retry
 requires a fresh key and a fresh link when the original token is no longer available.
 
 `visit_photos` stores Cloudinary references, source, dimensions, notes, and diagnosis.
-Cloudinary continues storing the images. Configure the two `NEXT_PUBLIC_CLOUDINARY_*`
-variables with the existing cloud and unsigned upload preset. JPEG, PNG, WebP, and
+Cloudinary stores the images as **authenticated (private) assets** under random
+ids (`brevicor/<uuid>`, no patient, visit or clinic data). Uploads are signed on
+the server: set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` and
+`CLOUDINARY_API_SECRET` (server-only; the unsigned preset is no longer used).
+The browser never sees a Cloudinary URL: it gets 5-minute signed Brevicor URLs
+(`/api/media/photos/<id>?g=...`) for each view, and the media route fetches the
+signed Cloudinary URL and streams the image (`Cache-Control: private, no-store`).
+"Save to chart" files a stable `/api/media/photos/<id>` link that opens only for
+a signed-in physician of the photo's clinic. JPEG, PNG, WebP, and
 AVIF uploads support up to 20 MB, with 30 photos per visit enforced in the database.
 Patient camera submissions, physician video captures, filters, region selection,
 annotations and low-data image delivery retain their existing behavior.

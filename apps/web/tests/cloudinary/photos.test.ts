@@ -20,8 +20,9 @@ const patientParams = { params: Promise.resolve({ token: 'test-token' }) };
 beforeEach(() => {
   auth.doctor = null; auth.owns = false; auth.verified = false;
   auth.visit = { id: 'photo-test-visit', clinicId: 'photo-test-clinic', patientRef: 'Patient/photo-test', status: 'in_progress' };
-  vi.stubEnv('NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME', 'demo');
-  vi.stubEnv('NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET', 'unsigned');
+  vi.stubEnv('CLOUDINARY_CLOUD_NAME', 'demo');
+  vi.stubEnv('CLOUDINARY_API_KEY', 'test-key');
+  vi.stubEnv('CLOUDINARY_API_SECRET', 'test-secret-never-sent');
 });
 
 describe('visit photo access', () => {
@@ -37,7 +38,7 @@ describe('visit photo access', () => {
     await addPhoto({ ...auth.visit, id: 'other-visit' } as Visit, { id: 'other', publicId: 'private-other-photo', notes: '', createdAt: new Date().toISOString() });
     const result = await GET(new Request('http://localhost/api/photos'), doctorParams);
     expect(result.status).toBe(200);
-    expect(await result.json()).toEqual({ photos: [] });
+    expect(await result.json()).toEqual({ configured: true, photos: [] });
     expect(result.headers.get('Cache-Control')).toBe('no-store');
   });
   it('requires patient verification', async () => {
@@ -53,6 +54,19 @@ describe('visit photo access', () => {
     auth.verified = true; auth.visit.status = 'completed';
     expect((await POST(new Request('http://localhost/api/photos', { method: 'POST' }), patientParams)).status).toBe(409);
   });
+  it('refuses uploads until the server-side Cloudinary credentials exist', async () => {
+    auth.verified = true;
+    vi.stubEnv('CLOUDINARY_API_SECRET', '');
+    expect((await POST(new Request('http://localhost/api/photos', { method: 'POST' }), patientParams)).status).toBe(503);
+  });
+  it('rejects a store that kept the asset public', async () => {
+    auth.verified = true;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ public_id: 'x', type: 'upload' }));
+    try {
+      const form = new FormData(); form.append('file', new File(['photo'], 'p.png', { type: 'image/png' }));
+      expect((await POST(new Request('http://localhost/api/photos', { method: 'POST', body: form }), patientParams)).status).toBe(502);
+    } finally { fetchMock.mockRestore(); }
+  });
   it('rejects unsupported media without contacting Cloudinary', async () => {
     auth.verified = true;
     const form = new FormData(); form.append('file', new File(['test'], 'test.txt', { type: 'text/plain' }));
@@ -60,10 +74,18 @@ describe('visit photo access', () => {
   });
   it('shares a successful upload with the owning physician', async () => {
     auth.verified = true; auth.doctor = {}; auth.owns = true;
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ public_id: 'uploaded/photo' }));
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(Response.json({ public_id: 'uploaded/photo', type: 'authenticated' }));
     try {
-      const form = new FormData(); form.append('file', new File(['photo'], 'photo.png', { type: 'image/png' }));
+      const form = new FormData(); form.append('file', new File(['photo'], 'Jane-Doe-rash.png', { type: 'image/png' }));
       expect((await POST(new Request('http://localhost/api/photos', { method: 'POST', body: form }), patientParams)).status).toBe(200);
+      // Signed, private upload under a random id; no preset, no secret and no file name sent.
+      const sent = fetchMock.mock.calls[0][1]!.body as FormData;
+      expect(sent.get('type')).toBe('authenticated');
+      expect(sent.get('upload_preset')).toBeNull();
+      expect(String(sent.get('public_id'))).toMatch(/^brevicor\/[0-9a-f-]{36}$/);
+      expect(String(sent.get('signature'))).toMatch(/^[0-9a-f]{40,64}$/);
+      expect([...sent.values()].map(String).join(' ')).not.toContain('test-secret-never-sent');
+      expect((sent.get('file') as File).name).toBe('photo');
       const result = await GET(new Request('http://localhost/api/photos'), doctorParams);
       const data = await result.json();
       expect(data.photos).toHaveLength(1);

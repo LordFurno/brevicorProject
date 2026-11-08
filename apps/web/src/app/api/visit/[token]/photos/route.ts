@@ -1,6 +1,7 @@
 import { authorizedPatient } from '@/lib/auth/patient';
 import { addPhoto, getPhotos } from '@/media/visit-photos';
 import { uploadPhoto } from '@/media/upload-photo';
+import { photosConfigured } from '@/media/cloudinary';
 import { json, jsonError } from '@/lib/http';
 export async function POST(req: Request, { params }: { params: Promise<{ token: string }> }) {
   if (req.headers.has('origin') && req.headers.get('origin') !== new URL(req.url).origin)
@@ -11,9 +12,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     return jsonError(409, 'This visit has ended.');
   if ((await getPhotos(visit)).length >= 30)
     return jsonError(429, 'Photo limit reached for this visit.');
-  const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-    preset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-  if (!cloud || !preset) return jsonError(503, 'Photo uploads are not configured.');
+  if (!photosConfigured()) return jsonError(503, 'Photo uploads are not configured.');
   try {
     await addPhoto(visit, { ...(await uploadPhoto(req)), source: 'patient_upload' }, 'patient');
     return json({ ok: true });
