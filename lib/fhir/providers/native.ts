@@ -11,6 +11,7 @@ import {
   type SearchRequest,
   type UpdateOptions,
 } from '../provider';
+import { fetchJson, upstreamFailure } from './http';
 
 const CAPS_TTL_MS = 10 * 60_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -96,22 +97,13 @@ export class NativeFhirProvider implements EhrProvider {
       headers.set('Authorization', `Bearer ${token}`);
     }
 
-    let res: Response;
-    try {
-      res = await this.fetchImpl(this.base + path, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-    } catch (err) {
-      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-        throw new FhirError(504, 'timeout', 'The EHR did not respond in time');
-      }
-      throw new FhirError(502, 'transient', 'The EHR could not be reached');
-    }
-
-    const json: unknown = await res.json().catch(() => undefined);
+    const res = await fetchJson(
+      this.fetchImpl,
+      this.base + path,
+      { method, headers, body: body === undefined ? undefined : JSON.stringify(body) },
+      this.timeoutMs,
+    );
+    const json = res.body;
     if (!res.ok) throw upstreamError(res.status, json);
     if (typeof json !== 'object' || json === null) throw invalidUpstream();
     return relativizeReferences(json, this.base) as T;
@@ -147,10 +139,6 @@ export function capabilitiesFromStatement(statement: CapabilityStatement, readOn
 
 function upstreamError(status: number, body: unknown): FhirError {
   switch (status) {
-    case 404:
-      return new FhirError(404, 'not-found', 'Resource is not known');
-    case 410:
-      return new FhirError(410, 'deleted', 'Resource has been deleted');
     case 400:
     case 409:
     case 412:
@@ -159,16 +147,8 @@ function upstreamError(status: number, body: unknown): FhirError {
       const code = status === 409 || status === 412 ? 'conflict' : 'invalid';
       return new FhirError(status, code, 'The EHR rejected the request', issues);
     }
-    case 401:
-    case 403:
-      return new FhirError(502, 'security', "The EHR rejected the gateway's credentials");
-    case 405:
-    case 501:
-      return new FhirError(501, 'not-supported', 'The EHR does not support this operation');
-    case 429:
-      return new FhirError(503, 'throttled', 'The EHR is rate limiting requests; retry later');
     default:
-      return new FhirError(502, 'transient', 'The EHR returned an error');
+      return upstreamFailure(status);
   }
 }
 

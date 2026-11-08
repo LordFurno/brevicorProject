@@ -1,0 +1,51 @@
+{
+  "note": "sex U -> unknown; no first name; leap day",
+  "resourceType": "Patient",
+  "vendor": {
+    "patientNo": "pat-102",
+    "chartNo": "MRN-102",
+    "title": null,
+    "lastName": "Doe",
+    "firstName": null,
+    "middleName": null,
+    "suffix": null,
+    "dob": "29/02/2000",
+    "sex": "U",
+    "cellPhone": null,
+    "homePhone": null,
+    "email": null,
+    "address1": null,
+    "city": null,
+    "province": null,
+    "postalCode": null,
+    "deceasedDate": null
+  },
+  "expected": {
+    "resourceType": "Patient",
+    "id": "pat-102",
+    "identifier": [
+      {
+        "type": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/v2-0203",
+              "code": "MR",
+              "display": "Medical Record Number"
+            }
+          ],
+          "text": "Medical Record Number"
+        },
+        "system": "https://clinicsoft.example/fhir/sid/chart-no",
+        "value": "MRN-102"
+      }
+    ],
+    "name": [
+      {
+        "use": "official",
+        "family": "Doe"
+      }
+    ],
+    "gender": "unknown",
+    "birthDate": "2000-02-29"
+  }
+}

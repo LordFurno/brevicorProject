@@ -2,8 +2,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Appointment } from 'fhir/r4';
 import { FHIR_RESOURCES_TABLE } from '@/lib/fhir/providers/mock';
 import { toRow } from '@/lib/fhir/providers/mock-index';
+import { formatInstant, formatLocal } from '@/lib/fhir/providers/adapter/helpers';
 import { dateRange, defaultTimeZone } from '@/lib/fhir/search';
+import { CLINICSOFT_SCHEMA, withPractice, type ClinicSoftAppointment } from '@/lib/vendors/clinicsoft/rows';
 import { deleteResources, fail, upsertRows } from './cli';
+import { clinicSoftLoaded, insertAll } from './clinicsoft';
+import { applyDemoContacts, pickDemoContacts } from './demo-contacts';
 
 /** How the app tells video from telephone consultations. Documented in docs/fhir-contract.md. */
 export const MODALITY_SYSTEM = 'https://brevicor.ca/fhir/CodeSystem/consultation-modality';
@@ -15,16 +19,30 @@ const TOMORROW_SLOTS = ['09:00', '09:45', '10:30', '11:15', '12:00', '13:00', '1
 const SOON_OFFSETS = [10, 30];
 const CANCELLED = new Set([3, 12, 17]);
 const DURATION_MIN = 15;
+const REASONS = ['Medication review', 'Follow-up visit', 'Test results review', 'New concern', 'Prescription renewal', 'Chronic care check-in'];
 
-export interface AppointmentPlan {
+/** One appointment, independent of how any EHR stores it. */
+export interface PlannedAppointment {
+  id: string;
+  patientId: string;
+  practitionerId: string;
+  start: Date;
+  durationMin: number;
+  status: 'booked' | 'cancelled';
+  modality: 'video' | 'telephone';
+  followUp: boolean;
+  reason: string;
+}
+
+export interface PlanInput {
   now: Date;
   patientIds: string[];
   practitionerIds: string[];
   timeZone?: string;
 }
 
-/** ~20 appointments today and tomorrow (clinic-local), relative to `now`. */
-export function buildAppointments({ now, patientIds, practitionerIds, timeZone = defaultTimeZone() }: AppointmentPlan): Appointment[] {
+/** ~20 appointments today and tomorrow (clinic-local), relative to `now`. Same day + same patients = same plan. */
+export function planAppointments({ now, patientIds, practitionerIds, timeZone = defaultTimeZone() }: PlanInput): PlannedAppointment[] {
   if (patientIds.length === 0 || practitionerIds.length === 0) throw new Error('need at least one patient and one practitioner');
   const today = localDate(now, timeZone);
   const tomorrow = addDays(today, 1);
@@ -42,40 +60,88 @@ export function buildAppointments({ now, patientIds, practitionerIds, timeZone =
   const stamp = today.replaceAll('-', '');
   const soonTimes = new Set(soon.map((d) => d.getTime()));
 
-  return starts.map((start, i) => {
-    const cancelled = CANCELLED.has(i) && !soonTimes.has(start.getTime());
-    const telephone = i % 3 === 2;
-    const modality = telephone
-      ? { code: 'telephone', display: 'Telephone consultation' }
-      : { code: 'video', display: 'Video consultation' };
-    const followUp = i % 4 === 1;
-    return {
-      resourceType: 'Appointment',
-      id: `appt-${stamp}-${String(i + 1).padStart(2, '0')}`,
-      status: cancelled ? 'cancelled' : 'booked',
-      ...(cancelled ? { cancelationReason: { text: 'Cancelled by patient' } } : {}),
-      appointmentType: {
-        coding: [
-          followUp
-            ? { system: APPOINTMENT_TYPE_SYSTEM, code: 'FOLLOWUP', display: 'A follow up visit from a previous appointment' }
-            : { system: APPOINTMENT_TYPE_SYSTEM, code: 'ROUTINE', display: 'Routine appointment - default if not valued' },
-        ],
-      },
-      serviceType: [{ coding: [{ system: MODALITY_SYSTEM, ...modality }], text: modality.display }],
-      start: start.toISOString(),
-      end: new Date(start.getTime() + DURATION_MIN * 60_000).toISOString(),
-      minutesDuration: DURATION_MIN,
-      created: now.toISOString(),
-      participant: [
-        { actor: { reference: `Patient/${patients[i % patients.length]}` }, required: 'required', status: 'accepted' },
-        { actor: { reference: `Practitioner/${practitionerIds[i % practitionerIds.length]}` }, required: 'required', status: 'accepted' },
-      ],
-    };
-  });
+  return starts.map((start, i) => ({
+    id: `appt-${stamp}-${String(i + 1).padStart(2, '0')}`,
+    patientId: patients[i % patients.length],
+    practitionerId: practitionerIds[i % practitionerIds.length],
+    start,
+    durationMin: DURATION_MIN,
+    status: CANCELLED.has(i) && !soonTimes.has(start.getTime()) ? 'cancelled' : 'booked',
+    modality: i % 3 === 2 ? 'telephone' : 'video',
+    followUp: i % 4 === 1,
+    reason: REASONS[i % REASONS.length],
+  }));
 }
 
-/** Replaces the clinic's Appointments with a fresh set around now. */
-export async function seedAppointments(db: SupabaseClient, clinicId: string, now = new Date()): Promise<Appointment[]> {
+/** The plan as demo-mock stores it (FHIR). */
+export function toFhirAppointment(p: PlannedAppointment, now: Date): Appointment {
+  const modality = p.modality === 'telephone' ? 'Telephone consultation' : 'Video consultation';
+  return {
+    resourceType: 'Appointment',
+    id: p.id,
+    status: p.status,
+    ...(p.status === 'cancelled' ? { cancelationReason: { text: 'Cancelled by patient' } } : {}),
+    appointmentType: {
+      coding: [
+        p.followUp
+          ? { system: APPOINTMENT_TYPE_SYSTEM, code: 'FOLLOWUP', display: 'A follow up visit from a previous appointment' }
+          : { system: APPOINTMENT_TYPE_SYSTEM, code: 'ROUTINE', display: 'Routine appointment - default if not valued' },
+      ],
+    },
+    serviceType: [{ coding: [{ system: MODALITY_SYSTEM, code: p.modality, display: modality }], text: modality }],
+    reasonCode: [{ text: p.reason }],
+    start: formatInstant(p.start),
+    end: formatInstant(new Date(p.start.getTime() + p.durationMin * 60_000)),
+    minutesDuration: p.durationMin,
+    created: formatInstant(now),
+    participant: [
+      { actor: { reference: `Patient/${p.patientId}` }, required: 'required', status: 'accepted' },
+      { actor: { reference: `Practitioner/${p.practitionerId}` }, required: 'required', status: 'accepted' },
+    ],
+  };
+}
+
+/** The plan as ClinicSoft stores it: local date + HH:MM, minutes, letter codes. */
+export function toClinicSoftAppointment(p: PlannedAppointment, timeZone = defaultTimeZone()): ClinicSoftAppointment {
+  return {
+    apptId: p.id,
+    patientNo: p.patientId,
+    providerNo: p.practitionerId,
+    apptDate: formatLocal(p.start.toISOString(), timeZone, 'YYYY-MM-DD')!,
+    startTime: formatLocal(p.start.toISOString(), timeZone, 'HH:mm')!,
+    duration: p.durationMin,
+    status: p.status === 'cancelled' ? 'C' : 'B',
+    type: p.modality === 'telephone' ? 'VIRT_PHONE' : 'VIRT_VIDEO',
+    reason: p.reason,
+  };
+}
+
+/** Convenience for callers that only want FHIR. */
+export function buildAppointments(input: PlanInput): Appointment[] {
+  return planAppointments(input).map((p) => toFhirAppointment(p, input.now));
+}
+
+export interface SeedResult {
+  plan: PlannedAppointment[];
+  appointments: Appointment[];
+  /** Practice written to, or null if ClinicSoft wasn't loaded. */
+  clinicSoftPractice: string | null;
+  /** Patients given DEMO_PHONE_NUMBERS / DEMO_EMAILS. */
+  demoContacts: number;
+}
+
+/**
+ * Replaces a FHIR clinic's Appointments with a fresh plan around now, writes
+ * the same plan to the ClinicSoft practice (if loaded), and gives the first
+ * patients seen today DEMO_PHONE_NUMBERS / DEMO_EMAILS (every other phone and
+ * email is cleared).
+ */
+export async function seedAppointments(
+  db: SupabaseClient,
+  clinicId: string,
+  opts: { now?: Date; clinicSoftPractice?: string; demoPhones?: string[]; demoEmails?: string[] } = {},
+): Promise<SeedResult> {
+  const now = opts.now ?? new Date();
   const patientRows = await selectAll(db, clinicId, 'Patient', 'id, deceasedDateTime:resource->deceasedDateTime, deceasedBoolean:resource->deceasedBoolean');
   const living = patientRows.filter((r) => !r.deceasedDateTime && r.deceasedBoolean !== true).map((r) => r.id as string);
   const practitioners = (await selectAll(db, clinicId, 'Practitioner', 'id')).map((r) => r.id as string).slice(0, 3);
@@ -83,10 +149,22 @@ export async function seedAppointments(db: SupabaseClient, clinicId: string, now
     fail(`clinic '${clinicId}' needs living patients and practitioners: run the Synthea import first`);
   }
 
-  const appointments = buildAppointments({ now, patientIds: living, practitionerIds: practitioners });
+  const plan = planAppointments({ now, patientIds: living, practitionerIds: practitioners });
+  const appointments = plan.map((p) => toFhirAppointment(p, now));
   await deleteResources(db, clinicId, 'Appointment');
   await upsertRows(db, appointments.map((a) => toRow(clinicId, a, 1, now)));
-  return appointments;
+
+  let practice: string | null = null;
+  if (opts.clinicSoftPractice && (await clinicSoftLoaded(db, opts.clinicSoftPractice))) {
+    practice = opts.clinicSoftPractice;
+    const { error } = await db.schema(CLINICSOFT_SCHEMA).from('schedule').delete().eq('practice_id', practice);
+    if (error) fail(`clearing clinicsoft.schedule failed (${error.code})`);
+    await insertAll(db, 'schedule', plan.map((p) => withPractice(practice!, toClinicSoftAppointment(p))));
+  }
+
+  const contacts = pickDemoContacts(plan, opts.demoPhones ?? [], opts.demoEmails ?? [], now);
+  await applyDemoContacts(db, contacts, { fhirClinic: clinicId, clinicSoftPractice: practice, now });
+  return { plan, appointments, clinicSoftPractice: practice, demoContacts: contacts.size };
 }
 
 async function selectAll(db: SupabaseClient, clinicId: string, type: string, columns: string): Promise<Record<string, unknown>[]> {

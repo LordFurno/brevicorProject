@@ -180,6 +180,7 @@ export function runProviderContract(harness: ContractHarness): void {
       };
 
       it('rejects invalid resources with 400 before reaching the EHR', async () => {
+        if (!supports(caps, 'Encounter', 'create')) return; // read-only EHRs answer 501 (checked above)
         expectOutcome(await call('POST', 'Encounter', { body: { resourceType: 'Encounter', class: {} } }), 400);
         expectOutcome(await call('POST', 'Encounter', { body: { resourceType: 'Patient' } }), 400);
         expectOutcome(await call('POST', 'Encounter', { body: '{oops' }), 400);

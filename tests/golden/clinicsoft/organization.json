@@ -1,0 +1,41 @@
+{
+  "resourceType": "Organization",
+  "vendor": {
+    "orgId": "org-1",
+    "orgName": "Rideau Family Health",
+    "licenceNo": "LIC-9",
+    "phone": "+16135550111",
+    "address1": "1 Rideau St",
+    "city": "Ottawa",
+    "province": "ON",
+    "postalCode": "K1N 5Y1"
+  },
+  "expected": {
+    "resourceType": "Organization",
+    "id": "org-1",
+    "identifier": [
+      {
+        "system": "https://clinicsoft.example/fhir/sid/org-licence",
+        "value": "LIC-9"
+      }
+    ],
+    "name": "Rideau Family Health",
+    "telecom": [
+      {
+        "system": "phone",
+        "value": "+16135550111",
+        "use": "work"
+      }
+    ],
+    "address": [
+      {
+        "line": [
+          "1 Rideau St"
+        ],
+        "city": "Ottawa",
+        "state": "ON",
+        "postalCode": "K1N 5Y1"
+      }
+    ]
+  }
+}

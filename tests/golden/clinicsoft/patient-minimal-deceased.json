@@ -1,0 +1,39 @@
+{
+  "note": "nulls drop out entirely (no empty arrays/objects); DD/MM/YYYY dates; sex M",
+  "resourceType": "Patient",
+  "vendor": {
+    "patientNo": "pat-101",
+    "chartNo": null,
+    "title": null,
+    "lastName": "Nguyen",
+    "firstName": "Bao",
+    "middleName": null,
+    "suffix": null,
+    "dob": "02/01/1975",
+    "sex": "M",
+    "cellPhone": null,
+    "homePhone": null,
+    "email": null,
+    "address1": null,
+    "city": null,
+    "province": null,
+    "postalCode": null,
+    "deceasedDate": "30/06/2024"
+  },
+  "expected": {
+    "resourceType": "Patient",
+    "id": "pat-101",
+    "name": [
+      {
+        "use": "official",
+        "family": "Nguyen",
+        "given": [
+          "Bao"
+        ]
+      }
+    ],
+    "gender": "male",
+    "birthDate": "1975-01-02",
+    "deceasedDateTime": "2024-06-30"
+  }
+}

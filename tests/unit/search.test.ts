@@ -10,6 +10,8 @@ import {
   parseToken,
   splitOrValues,
   splitParamName,
+  utcToWallTime,
+  wallTimeToUtc,
   type DateCond,
 } from '@/lib/fhir/search';
 
@@ -125,6 +127,14 @@ describe('dateRange', () => {
     // EST (UTC-5): DST ended 2026-11-01.
     const r = dateRange('2026-11-07', TZ)!;
     expect([iso(r.lo), iso(r.hi)]).toEqual(['2026-11-07T05:00:00.000Z', '2026-11-08T05:00:00.000Z']);
+  });
+
+  it('resolves DST gaps forward and overlaps to the earlier instant', () => {
+    // 02:30 doesn't exist on 2026-03-08 (clocks jump 02:00 EST -> 03:00 EDT): becomes 03:30 EDT.
+    expect(iso(wallTimeToUtc(TZ, 2026, 3, 8, 2, 30))).toBe('2026-03-08T07:30:00.000Z');
+    // 01:30 happens twice on 2026-11-01: the first (EDT) occurrence wins.
+    expect(iso(wallTimeToUtc(TZ, 2026, 11, 1, 1, 30))).toBe('2026-11-01T05:30:00.000Z');
+    expect(utcToWallTime(new Date('2026-11-01T06:30:00Z'), TZ)).toEqual({ year: 2026, month: 11, day: 1, hour: 1, minute: 30, second: 0 });
   });
 
   it('handles the 23-hour day when DST starts', () => {

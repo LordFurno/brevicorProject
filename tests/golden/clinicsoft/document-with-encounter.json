@@ -1,0 +1,39 @@
+{
+  "resourceType": "DocumentReference",
+  "vendor": {
+    "docId": "doc-9",
+    "patientNo": "pat-100",
+    "encounterNo": "enc-1",
+    "docType": "Consultation transcript",
+    "mimeType": "text/plain",
+    "createdAt": "2026-11-18 10:05:00",
+    "body": "VW52ZXJpZmllZCB0cmFuc2NyaXB0"
+  },
+  "expected": {
+    "resourceType": "DocumentReference",
+    "id": "doc-9",
+    "status": "current",
+    "type": {
+      "text": "Consultation transcript"
+    },
+    "subject": {
+      "reference": "Patient/pat-100"
+    },
+    "date": "2026-11-18T15:05:00Z",
+    "content": [
+      {
+        "attachment": {
+          "contentType": "text/plain",
+          "data": "VW52ZXJpZmllZCB0cmFuc2NyaXB0"
+        }
+      }
+    ],
+    "context": {
+      "encounter": [
+        {
+          "reference": "Encounter/enc-1"
+        }
+      ]
+    }
+  }
+}

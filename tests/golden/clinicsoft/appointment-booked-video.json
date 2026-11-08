@@ -1,0 +1,54 @@
+{
+  "note": "B + VIRT_VIDEO; 09:30 EST = 14:30Z",
+  "resourceType": "Appointment",
+  "vendor": {
+    "apptId": "a-b",
+    "patientNo": "pat-100",
+    "providerNo": "doc-1",
+    "apptDate": "2026-11-18",
+    "startTime": "09:30",
+    "duration": 15,
+    "status": "B",
+    "type": "VIRT_VIDEO",
+    "reason": "Medication review"
+  },
+  "expected": {
+    "resourceType": "Appointment",
+    "id": "a-b",
+    "status": "booked",
+    "serviceType": [
+      {
+        "coding": [
+          {
+            "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality",
+            "code": "video",
+            "display": "Video consultation"
+          }
+        ],
+        "text": "Video consultation"
+      }
+    ],
+    "reasonCode": [
+      {
+        "text": "Medication review"
+      }
+    ],
+    "start": "2026-11-18T14:30:00Z",
+    "end": "2026-11-18T14:45:00Z",
+    "minutesDuration": 15,
+    "participant": [
+      {
+        "actor": {
+          "reference": "Patient/pat-100"
+        },
+        "status": "accepted"
+      },
+      {
+        "actor": {
+          "reference": "Practitioner/doc-1"
+        },
+        "status": "accepted"
+      }
+    ]
+  }
+}

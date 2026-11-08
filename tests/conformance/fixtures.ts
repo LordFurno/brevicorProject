@@ -10,8 +10,8 @@ import type { InScopeType } from '@/lib/fhir/provider';
  * mid-day UTC so date-only searches agree in any server timezone.
  */
 
-const MRN = 'https://brevicor.ca/fhir/sid/test-mrn';
-const LICENCE = 'https://brevicor.ca/fhir/sid/test-licence';
+export const MRN = 'https://brevicor.ca/fhir/sid/test-mrn';
+export const LICENCE = 'https://brevicor.ca/fhir/sid/test-licence';
 const ACT_CODE = 'http://terminology.hl7.org/CodeSystem/v3-ActCode';
 
 export const FIXTURES: FhirResource[] = [

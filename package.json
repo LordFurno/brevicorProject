@@ -19,14 +19,17 @@
     "fhir:seed": "tsx scripts/seed-appointments.ts",
     "fhir:reset": "tsx scripts/reset.ts",
     "fhir:users": "tsx scripts/seed-users.ts",
-    "fhir:token": "tsx scripts/token.ts"
+    "fhir:token": "tsx scripts/token.ts",
+    "clinicsoft:load": "tsx scripts/load-clinicsoft.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
+    "jsonata": "^2.2.2",
     "next": "^16.4.5",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/fhir": "^0.0.44",

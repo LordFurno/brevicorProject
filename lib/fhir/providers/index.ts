@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { FhirError } from '../outcome';
 import type { EhrConnection, EhrProvider } from '../provider';
+import { AdapterProvider } from './adapter';
 import { MockProvider } from './mock';
 import { NativeFhirProvider } from './native';
 
@@ -17,6 +17,6 @@ export function createProvider(conn: EhrConnection, deps: ProviderDeps): EhrProv
     case 'fhir':
       return new NativeFhirProvider(conn, deps.fetch);
     case 'adapter':
-      throw new FhirError(501, 'not-supported', "This clinic's EHR adapter is not available yet");
+      return new AdapterProvider(conn, { fetch: deps.fetch });
   }
 }

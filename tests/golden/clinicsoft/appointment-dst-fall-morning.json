@@ -1,0 +1,49 @@
+{
+  "note": "day DST ends (2026-11-01): 09:00 is EST (UTC-5)",
+  "resourceType": "Appointment",
+  "vendor": {
+    "apptId": "a-dst2",
+    "patientNo": "pat-100",
+    "providerNo": "doc-1",
+    "apptDate": "2026-11-01",
+    "startTime": "09:00",
+    "duration": 15,
+    "status": "B",
+    "type": "VIRT_VIDEO",
+    "reason": null
+  },
+  "expected": {
+    "resourceType": "Appointment",
+    "id": "a-dst2",
+    "status": "booked",
+    "serviceType": [
+      {
+        "coding": [
+          {
+            "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality",
+            "code": "video",
+            "display": "Video consultation"
+          }
+        ],
+        "text": "Video consultation"
+      }
+    ],
+    "start": "2026-11-01T14:00:00Z",
+    "end": "2026-11-01T14:15:00Z",
+    "minutesDuration": 15,
+    "participant": [
+      {
+        "actor": {
+          "reference": "Patient/pat-100"
+        },
+        "status": "accepted"
+      },
+      {
+        "actor": {
+          "reference": "Practitioner/doc-1"
+        },
+        "status": "accepted"
+      }
+    ]
+  }
+}

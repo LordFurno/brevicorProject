@@ -1,0 +1,87 @@
+{
+  "note": "every field present; accents preserved; cell + home phones + email",
+  "resourceType": "Patient",
+  "vendor": {
+    "patientNo": "pat-100",
+    "chartNo": "MRN-100",
+    "title": "Mrs.",
+    "lastName": "Côté",
+    "firstName": "Éloïse",
+    "middleName": "Marie",
+    "suffix": "PhD",
+    "dob": "15/05/1980",
+    "sex": "F",
+    "cellPhone": "+16135550100",
+    "homePhone": "+16135550199",
+    "email": "eloise.demo@example.com",
+    "address1": "100 Wellington St",
+    "city": "Ottawa",
+    "province": "ON",
+    "postalCode": "K1A 0A9",
+    "deceasedDate": null
+  },
+  "expected": {
+    "resourceType": "Patient",
+    "id": "pat-100",
+    "identifier": [
+      {
+        "type": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/v2-0203",
+              "code": "MR",
+              "display": "Medical Record Number"
+            }
+          ],
+          "text": "Medical Record Number"
+        },
+        "system": "https://clinicsoft.example/fhir/sid/chart-no",
+        "value": "MRN-100"
+      }
+    ],
+    "name": [
+      {
+        "use": "official",
+        "family": "Côté",
+        "given": [
+          "Éloïse",
+          "Marie"
+        ],
+        "prefix": [
+          "Mrs."
+        ],
+        "suffix": [
+          "PhD"
+        ]
+      }
+    ],
+    "telecom": [
+      {
+        "system": "phone",
+        "value": "+16135550100",
+        "use": "mobile"
+      },
+      {
+        "system": "phone",
+        "value": "+16135550199",
+        "use": "home"
+      },
+      {
+        "system": "email",
+        "value": "eloise.demo@example.com"
+      }
+    ],
+    "gender": "female",
+    "birthDate": "1980-05-15",
+    "address": [
+      {
+        "line": [
+          "100 Wellington St"
+        ],
+        "city": "Ottawa",
+        "state": "ON",
+        "postalCode": "K1A 0A9"
+      }
+    ]
+  }
+}

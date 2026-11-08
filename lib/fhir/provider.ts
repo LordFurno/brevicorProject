@@ -91,7 +91,11 @@ export function supports(caps: Capabilities, type: string, interaction: Interact
 export type ConnectionMode = 'fhir' | 'mock' | 'adapter';
 
 /** Credentials live in env vars; the DB only names them. */
-export type ConnectionAuth = { type: 'none' } | { type: 'bearer'; tokenEnv: string };
+export type ConnectionAuth =
+  | { type: 'none' }
+  | { type: 'bearer'; tokenEnv: string }
+  | { type: 'apiKey'; keyEnv: string }
+  | { type: 'oauth2_client_credentials'; clientIdEnv: string; clientSecretEnv: string };
 
 export interface EhrConnection {
   clinicId: string;

@@ -1,0 +1,49 @@
+{
+  "note": "01:30 happens twice on 2026-11-01; the first (EDT) wins; 60 real minutes later is the second 01:30",
+  "resourceType": "Appointment",
+  "vendor": {
+    "apptId": "a-overlap",
+    "patientNo": "pat-100",
+    "providerNo": "doc-1",
+    "apptDate": "2026-11-01",
+    "startTime": "01:30",
+    "duration": 60,
+    "status": "B",
+    "type": "VIRT_PHONE",
+    "reason": null
+  },
+  "expected": {
+    "resourceType": "Appointment",
+    "id": "a-overlap",
+    "status": "booked",
+    "serviceType": [
+      {
+        "coding": [
+          {
+            "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality",
+            "code": "telephone",
+            "display": "Telephone consultation"
+          }
+        ],
+        "text": "Telephone consultation"
+      }
+    ],
+    "start": "2026-11-01T05:30:00Z",
+    "end": "2026-11-01T06:30:00Z",
+    "minutesDuration": 60,
+    "participant": [
+      {
+        "actor": {
+          "reference": "Patient/pat-100"
+        },
+        "status": "accepted"
+      },
+      {
+        "actor": {
+          "reference": "Practitioner/doc-1"
+        },
+        "status": "accepted"
+      }
+    ]
+  }
+}

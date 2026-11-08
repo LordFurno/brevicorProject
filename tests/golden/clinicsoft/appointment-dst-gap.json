@@ -1,0 +1,49 @@
+{
+  "note": "02:30 does not exist on 2026-03-08; moves forward to 03:30 EDT = 07:30Z",
+  "resourceType": "Appointment",
+  "vendor": {
+    "apptId": "a-gap",
+    "patientNo": "pat-100",
+    "providerNo": "doc-1",
+    "apptDate": "2026-03-08",
+    "startTime": "02:30",
+    "duration": 15,
+    "status": "B",
+    "type": "VIRT_PHONE",
+    "reason": null
+  },
+  "expected": {
+    "resourceType": "Appointment",
+    "id": "a-gap",
+    "status": "booked",
+    "serviceType": [
+      {
+        "coding": [
+          {
+            "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality",
+            "code": "telephone",
+            "display": "Telephone consultation"
+          }
+        ],
+        "text": "Telephone consultation"
+      }
+    ],
+    "start": "2026-03-08T07:30:00Z",
+    "end": "2026-03-08T07:45:00Z",
+    "minutesDuration": 15,
+    "participant": [
+      {
+        "actor": {
+          "reference": "Patient/pat-100"
+        },
+        "status": "accepted"
+      },
+      {
+        "actor": {
+          "reference": "Practitioner/doc-1"
+        },
+        "status": "accepted"
+      }
+    ]
+  }
+}

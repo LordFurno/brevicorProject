@@ -1,0 +1,35 @@
+{
+  "resourceType": "Practitioner",
+  "vendor": {
+    "providerNo": "doc-1",
+    "title": "Dr.",
+    "firstName": "Ada",
+    "lastName": "Okafor",
+    "sex": "F",
+    "specialty": "GENERAL PRACTICE",
+    "cpsoNo": "CPSO-123",
+    "orgId": "org-1"
+  },
+  "expected": {
+    "resourceType": "Practitioner",
+    "id": "doc-1",
+    "identifier": [
+      {
+        "system": "https://clinicsoft.example/fhir/sid/cpso",
+        "value": "CPSO-123"
+      }
+    ],
+    "name": [
+      {
+        "family": "Okafor",
+        "given": [
+          "Ada"
+        ],
+        "prefix": [
+          "Dr."
+        ]
+      }
+    ],
+    "gender": "female"
+  }
+}

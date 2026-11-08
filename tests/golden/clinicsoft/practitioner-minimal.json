@@ -1,0 +1,25 @@
+{
+  "resourceType": "Practitioner",
+  "vendor": {
+    "providerNo": "doc-2",
+    "title": null,
+    "firstName": "Luc",
+    "lastName": "Lavoie",
+    "sex": null,
+    "specialty": null,
+    "cpsoNo": null,
+    "orgId": null
+  },
+  "expected": {
+    "resourceType": "Practitioner",
+    "id": "doc-2",
+    "name": [
+      {
+        "family": "Lavoie",
+        "given": [
+          "Luc"
+        ]
+      }
+    ]
+  }
+}

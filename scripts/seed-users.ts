@@ -7,6 +7,8 @@ import { demoPassword, ensureUser, setMemberships } from './lib/users';
 
 const MOCK_CLINIC = 'demo-mock';
 const FHIR_CLINIC = 'hapi-public';
+// ClinicSoft holds the same Synthea data and appointment plan, so the same Practitioner ids apply.
+const ADAPTER_CLINIC = 'demo-clinicsoft';
 
 await main(async () => {
   const db = adminClient();
@@ -17,14 +19,18 @@ await main(async () => {
   const users = [
     {
       email: 'physician.one@demo.brevicor.test',
-      memberships: [{ clinicId: MOCK_CLINIC, role: 'physician' as const, practitionerRef: first }],
+      memberships: [
+        { clinicId: MOCK_CLINIC, role: 'physician' as const, practitionerRef: first },
+        { clinicId: ADAPTER_CLINIC, role: 'physician' as const, practitionerRef: first },
+      ],
     },
     {
-      // Belongs to two clinics backed by different EHRs, so X-Clinic-Id selects one.
+      // Belongs to three clinics backed by different EHRs, so X-Clinic-Id selects one.
       email: 'physician.two@demo.brevicor.test',
       memberships: [
         { clinicId: MOCK_CLINIC, role: 'physician' as const, practitionerRef: second },
         { clinicId: FHIR_CLINIC, role: 'staff' as const, practitionerRef: null },
+        { clinicId: ADAPTER_CLINIC, role: 'physician' as const, practitionerRef: second },
       ],
     },
   ];

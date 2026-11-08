@@ -1,0 +1,28 @@
+{
+  "resourceType": "DocumentReference",
+  "vendor": {
+    "docId": "doc-10",
+    "patientNo": "pat-101",
+    "encounterNo": null,
+    "docType": null,
+    "mimeType": "application/pdf",
+    "createdAt": null,
+    "body": "JVBERi0="
+  },
+  "expected": {
+    "resourceType": "DocumentReference",
+    "id": "doc-10",
+    "status": "current",
+    "subject": {
+      "reference": "Patient/pat-101"
+    },
+    "content": [
+      {
+        "attachment": {
+          "contentType": "application/pdf",
+          "data": "JVBERi0="
+        }
+      }
+    ]
+  }
+}

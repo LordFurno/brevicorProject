@@ -1,0 +1,33 @@
+{
+  "note": "VOID -> cancelled; emergency -> EMER; crosses local midnight",
+  "resourceType": "Encounter",
+  "vendor": {
+    "encounterNo": "enc-3",
+    "patientNo": "pat-101",
+    "providerNo": null,
+    "orgId": null,
+    "apptId": null,
+    "startDateTime": "2026-01-05 23:10:00",
+    "endDateTime": "2026-01-06 01:00:00",
+    "encClass": "emergency",
+    "encStatus": "VOID",
+    "encTypeCode": null,
+    "encTypeDesc": null
+  },
+  "expected": {
+    "resourceType": "Encounter",
+    "id": "enc-3",
+    "status": "cancelled",
+    "class": {
+      "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+      "code": "EMER"
+    },
+    "subject": {
+      "reference": "Patient/pat-101"
+    },
+    "period": {
+      "start": "2026-01-06T04:10:00Z",
+      "end": "2026-01-06T06:00:00Z"
+    }
+  }
+}

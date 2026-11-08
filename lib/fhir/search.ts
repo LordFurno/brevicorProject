@@ -258,17 +258,55 @@ function utcMs(y: number, mo: number, d: number, h: number, mi: number, s: numbe
   return t.getTime();
 }
 
-/** Wall-clock time in `timeZone` -> epoch ms. */
+const DAY_MS = 86_400_000;
+
+/**
+ * Wall-clock time in `timeZone` -> epoch ms. A time that happens twice (clocks
+ * going back) resolves to the earlier instant; a time skipped when clocks go
+ * forward moves forward by the gap (02:30 -> 03:30), like Temporal's "compatible".
+ */
 function zonedMs(parts: readonly [number, number, number, number, number, number, number], timeZone: string): number {
-  const guess = utcMs(...parts);
-  const first = guess - tzOffsetMs(guess, timeZone);
-  const second = tzOffsetMs(first, timeZone);
-  return guess - second;
+  const wall = utcMs(...parts);
+  const before = tzOffsetMs(wall - DAY_MS, timeZone);
+  const after = tzOffsetMs(wall + DAY_MS, timeZone);
+  const valid = [wall - before, wall - after]
+    .filter((t) => t + tzOffsetMs(t, timeZone) === wall)
+    .sort((a, b) => a - b);
+  return valid[0] ?? wall - before;
+}
+
+/** Local wall time in `timeZone` -> instant. Month is 1-based. DST handling as in zonedMs. */
+export function wallTimeToUtc(
+  timeZone: string,
+  year: number,
+  month: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0,
+): Date {
+  return new Date(zonedMs([year, month - 1, day, hour, minute, second, 0], timeZone));
+}
+
+export interface WallTime {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+/** Instant -> wall-clock time in `timeZone` (month 1-based). */
+export function utcToWallTime(instant: Date, timeZone: string): WallTime {
+  const p: Record<string, number> = {};
+  for (const { type, value } of formatter(timeZone).formatToParts(instant)) p[type] = Number(value);
+  return { year: p.year, month: p.month, day: p.day, hour: p.hour, minute: p.minute, second: p.second };
 }
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-function tzOffsetMs(instant: number, timeZone: string): number {
+function formatter(timeZone: string): Intl.DateTimeFormat {
   let f = formatters.get(timeZone);
   if (!f) {
     f = new Intl.DateTimeFormat('en-US', {
@@ -283,8 +321,11 @@ function tzOffsetMs(instant: number, timeZone: string): number {
     });
     formatters.set(timeZone, f);
   }
-  const p: Record<string, number> = {};
-  for (const { type, value } of f.formatToParts(new Date(instant))) p[type] = Number(value);
+  return f;
+}
+
+function tzOffsetMs(instant: number, timeZone: string): number {
+  const p = utcToWallTime(new Date(instant), timeZone);
   const wall = utcMs(p.year, p.month - 1, p.day, p.hour, p.minute, p.second, 0);
   return wall - Math.floor(instant / 1000) * 1000;
 }

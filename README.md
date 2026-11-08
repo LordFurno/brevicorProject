@@ -8,12 +8,13 @@ API, `/api/fhir/R4`. Behind it, each clinic is wired to its EHR through a
 |---|---|---|
 | `mock` | `lib/fhir/providers/mock.ts` | Synthetic data (Synthea) in Supabase, table `fhir_resources` |
 | `fhir` | `lib/fhir/providers/native.ts` | Any FHIR R4 server, e.g. an EHR's FHIR endpoint |
-| `adapter` | *phase 2* | Proprietary EHR APIs, translated to FHIR |
+| `adapter` | `lib/fhir/providers/adapter/` + `vendors/<name>.yaml` | Proprietary (non-FHIR) EHR APIs, translated by a mapping file, not code. Demo: the fake "ClinicSoft" EMR |
 
 Every provider implements `EhrProvider` (`lib/fhir/provider.ts`) and passes the
 same conformance suite, so the app never needs to know which one it's using.
-The app-facing contract is in [docs/fhir-contract.md](docs/fhir-contract.md). The product
-spec is in [docs/specs.md](docs/specs.md) (§2.1 and §4H).
+The app-facing contract is in [docs/fhir-contract.md](docs/fhir-contract.md). How to connect
+a non-FHIR EHR is in [docs/adapter-guide.md](docs/adapter-guide.md). The product spec is in
+[docs/specs.md](docs/specs.md) (§2.1 and §4H).
 
 ## Requirements
 
@@ -36,6 +37,10 @@ Create `.env.local` (git-ignored):
 | `SUPABASE_SECRET_KEY` | yes | Supabase **secret** key (`sb_secret_…`). Server-side only. Bypasses RLS. Never give it a `NEXT_PUBLIC_` prefix or import it into client code. |
 | `INTERNAL_SERVICE_TOKEN` | for server-side callers | Shared secret that server-side code (no logged-in user) sends as a bearer token. At least 32 characters, e.g. `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`. Service auth is off when it's unset or shorter. |
 | `DEMO_USER_PASSWORD` | for demo logins | Password that `fhir:users` sets on the demo physicians and `fhir:token` signs in with. |
+| `CLINICSOFT_API_KEY` | for demo-clinicsoft | Key the fake ClinicSoft API accepts (`X-API-Key`) and the adapter sends. Any random string. |
+| `CLINICSOFT_BASE_URL` | for demo-clinicsoft | e.g. `http://localhost:3000/api/mock-vendors/clinicsoft/v2/practices/demo`. Use the port the gateway runs on. |
+| `DEMO_PHONE_NUMBERS` | for phone demos | Comma-separated E.164 numbers **you control**, e.g. `+16135550123,+16135550124`. |
+| `DEMO_EMAILS` | for email demos | Comma-separated addresses **you control**. The seed gives patient *n* the *n*th phone and the *n*th email: the first patients with booked appointments today, in demo-mock and ClinicSoft alike. Every other patient has no phone or email, so nobody ever contacts a Synthea-generated number or address. |
 | `FHIR_TIMEZONE` | no | Timezone used for dates in searches and stored data when they don't carry one. Default `America/Toronto`. If you change it, run a reset afterwards. |
 | `FHIR_LOG` | no | Set to `silent` to turn off gateway logs (tests do this automatically). |
 | `HAPI_FHIR_URL` | no | Tests only. Runs the conformance suite against this FHIR server. |
@@ -56,19 +61,25 @@ npm run db:push              # = supabase db push --remote
 Supabase CLI v3 targets the *local* stack by default, so the script passes
 `--remote`.
 
-The migration creates `ehr_connections` and `fhir_resources`. Both have RLS
-enabled with no policies, and the public API roles get no grants, so only the
-secret key can access them. It also seeds two clinics:
+The migrations create `ehr_connections`, `fhir_resources`, `clinic_members`
+and the fake EMR's `clinicsoft` schema. All have RLS enabled, and the public
+API roles get no access to anything but their own `clinic_members` rows. They
+also seed three clinics:
 
 | clinic_id | mode | notes |
 |---|---|---|
 | `demo-mock` | mock | Synthea data, loaded by the scripts below |
 | `hapi-public` | fhir | `https://hapi.fhir.org/baseR4`, **read-only** (`read_only = true`). It's a public test server, so the gateway never writes to it. |
+| `demo-clinicsoft` | adapter | The fake ClinicSoft EMR (`vendors/clinicsoft.yaml`), read-only, holding the same Synthea data as demo-mock |
+
+**One manual step:** in the Supabase dashboard, add `clinicsoft` under
+**Project Settings → Data API → Exposed schemas**. The secret-key client can't
+reach the schema otherwise. Its tables stay locked to the secret key either way.
 
 ## Synthetic data (Synthea)
 
 Generate about 50 patients into `./synthea-output/` (git-ignored). The run
-writes `fhir/` (used by the import) and `csv/` (not used).
+writes `fhir/` (imported into demo-mock) and `csv/` (loaded into ClinicSoft).
 
 ```bash
 mkdir -p .synthea
@@ -89,19 +100,19 @@ docker run --rm -v "$PWD:/work" -w /work eclipse-temurin:21-jre \
 people are US-based (Massachusetts by default) and their names carry numeric
 suffixes (e.g. `Abbott774`). That's expected.
 
-## Loading, seeding and resetting mock data
+## Loading, seeding and resetting demo data
 
-The scripts only ever write to clinics whose mode is `mock`.
+The FHIR scripts only ever write to clinics whose mode is `mock`.
 
 ```bash
-# Import Patient, Practitioner, Organization and the 10 most recent Encounters per patient
+# Everything at once: wipe demo-mock, import Synthea FHIR, reload ClinicSoft practice 'demo'
+# from Synthea CSV, and seed one appointment plan into both
+npm run fhir:reset -- demo-mock [fhirDir] [csvDir] [--no-clinicsoft]
+
+# Or step by step:
 npm run fhir:import -- demo-mock ./synthea-output/fhir [--max-encounters 10]
-
-# Replace the clinic's Appointments with ~20 around now (today + tomorrow, clinic time)
-npm run fhir:seed -- demo-mock
-
-# Wipe the clinic, re-import and re-seed (default dir ./synthea-output/fhir)
-npm run fhir:reset -- demo-mock [dir]
+npm run clinicsoft:load -- demo ./synthea-output/csv
+npm run fhir:seed -- demo-mock          # writes the plan to demo-mock and to ClinicSoft 'demo' (if loaded)
 ```
 
 - **Import** is idempotent: rows are upserted on stable Synthea UUIDs, in
@@ -113,7 +124,16 @@ npm run fhir:reset -- demo-mock [dir]
   start in 10 and 30 minutes, for waiting-room demos. Most are `booked` and a
   few are `cancelled`. Each has a Patient and a Practitioner actor and is
   marked video or telephone (see the contract doc). Re-running it on the same
-  day gives the same schedule.
+  day gives the same schedule. The **same plan** goes to demo-mock as FHIR and to
+  ClinicSoft as `schedule` rows, so the two clinics can be compared directly.
+- **Phones and emails:** Synthea's random contacts are never imported. The
+  seed gives `DEMO_PHONE_NUMBERS` and `DEMO_EMAILS` to the first patients with
+  booked appointments today (in start order, phone *n* and email *n* to the
+  same patient), and clears every other phone and email, in both EHRs. With the
+  variables unset, no patient has either.
+- **ClinicSoft load:** Synthea's CSV ids equal its FHIR ids, so ClinicSoft's
+  `patientNo`/`providerNo` are the same ids demo-mock uses. See
+  [docs/adapter-guide.md](docs/adapter-guide.md) §10.
 
 ## Authentication
 
@@ -156,8 +176,10 @@ npm run fhir:users     # needs DEMO_USER_PASSWORD; safe to re-run
 
 | Email | Clinics |
 |---|---|
-| `physician.one@demo.brevicor.test` | `demo-mock` (physician, linked to the Practitioner with the most seeded appointments) |
-| `physician.two@demo.brevicor.test` | `demo-mock` (physician, the second Practitioner) and `hapi-public` (staff). Needs `X-Clinic-Id`. |
+| `physician.one@demo.brevicor.test` | `demo-mock` and `demo-clinicsoft` (physician, the Practitioner with the most seeded appointments, same id in both) |
+| `physician.two@demo.brevicor.test` | `demo-mock` and `demo-clinicsoft` (physician, the second Practitioner) and `hapi-public` (staff) |
+
+Both belong to several clinics, so every request needs `X-Clinic-Id`.
 
 `npm run -s fhir:token -- <email>` signs in and prints only the access token.
 
@@ -176,16 +198,20 @@ B=http://localhost:3000/api/fhir/R4
 # Clinic-local dates. Plain `date` gives the machine's zone (Git Bash can't do IANA zones), so use Node:
 read TODAY TOMORROW < <(node -e 'const f=d=>new Intl.DateTimeFormat("en-CA",{timeZone:"America/Toronto"}).format(d);console.log(f(new Date()),f(new Date(Date.now()+864e5)))')
 
-# Physician in one clinic
 T1=$(npm run -s fhir:token -- physician.one@demo.brevicor.test)
-curl -H "Authorization: Bearer $T1" "$B/metadata"
-curl -H "Authorization: Bearer $T1" "$B/Appointment?date=ge$TODAY&date=lt$TOMORROW"
-curl -H "Authorization: Bearer $T1" "$B/Appointment?practitioner=<their Practitioner id>&date=ge$TODAY&status=booked"
-curl -H "Authorization: Bearer $T1" "$B/Patient/<id from an appointment's participant.actor>"
+PRAC=<physician.one's Practitioner id, printed by npm run fhir:users>
 
-# Physician in two clinics: pick one
+# Today's appointments for the practitioner, then follow a patient reference.
+# Same requests, two different EHRs: only X-Clinic-Id changes.
+for CLINIC in demo-mock demo-clinicsoft; do
+  curl -H "Authorization: Bearer $T1" -H "X-Clinic-Id: $CLINIC" \
+    "$B/Appointment?practitioner=Practitioner/$PRAC&date=ge$TODAY&date=lt$TOMORROW"
+  curl -H "Authorization: Bearer $T1" -H "X-Clinic-Id: $CLINIC" "$B/Patient/<id from participant.actor>"
+done
+curl -H "Authorization: Bearer $T1" -H "X-Clinic-Id: demo-clinicsoft" "$B/metadata"   # what ClinicSoft supports
+
+# A third EHR type: a native FHIR server
 T2=$(npm run -s fhir:token -- physician.two@demo.brevicor.test)
-curl -H "Authorization: Bearer $T2" -H "X-Clinic-Id: demo-mock"   "$B/Patient?_count=5"
 curl -H "Authorization: Bearer $T2" -H "X-Clinic-Id: hapi-public" "$B/Patient?family=Smith&_count=5"   # same Bundle shape
 
 # Server-side code (no user)
@@ -200,7 +226,7 @@ Every error is an `OperationOutcome` with `Content-Type: application/fhir+json`.
 ```bash
 npm test                    # everything: unit + integration + conformance
 npm run test:unit           # no network needed
-npm run test:conformance    # provider contract vs the mock (needs Supabase env)
+npm run test:conformance    # provider contract vs the mock and vs ClinicSoft (needs Supabase env)
 npm run typecheck
 ```
 
@@ -223,6 +249,17 @@ HAPI_FHIR_URL=http://localhost:8080/fhir npm run test:conformance
 
 Never point `HAPI_FHIR_URL` at a shared server: the suite writes fixtures.
 
+For the ClinicSoft adapter:
+- **Golden tests:** `tests/unit/clinicsoft-golden.test.ts` maps hand-written
+  vendor records (`tests/golden/clinicsoft/`) to exact FHIR, covering every
+  code and the DST edge cases.
+- **Contract:** `tests/conformance/clinicsoft.test.ts` runs the unchanged
+  contract against the adapter, with the fixtures in a throwaway ClinicSoft
+  practice.
+- **Equivalence:** `tests/integration/clinicsoft-equivalence.test.ts` checks
+  that demo-clinicsoft returns the same FHIR as demo-mock for the seeded plan.
+  It needs a seeded reset from today.
+
 ## Layout
 
 ```
@@ -231,17 +268,24 @@ lib/fhir/gateway.ts                   caller → clinic's ehr_connections row �
 lib/fhir/auth.ts                      resolveCaller(): Supabase access token or service token → clinic
 lib/fhir/dispatch.ts                  FHIR REST handling: routing, capability checks, validation, envelopes
 lib/fhir/provider.ts                  EhrProvider interface + capability/connection types
-lib/fhir/providers/                   mock.ts, mock-index.ts (search columns), native.ts, index.ts (mode switch)
+lib/fhir/providers/                   mock.ts, mock-index.ts (search columns), native.ts, http.ts, index.ts (mode switch)
+lib/fhir/providers/adapter/           YAML-driven adapter engine: definition, search, helpers, auth, hooks
+vendors/clinicsoft.yaml               ClinicSoft vendor definition (the mapping file)
+lib/vendors/clinicsoft/               the fake ClinicSoft EMR API (served at /api/mock-vendors/clinicsoft/v2)
 lib/fhir/search.ts                    search parsing (dates/prefixes/timezones, references, tokens, strings)
 lib/fhir/validate.ts                  structural R4 validation for the gateway's resource types
 lib/fhir/{bundle,capability-statement,outcome,log,connections}.ts
 lib/supabase/admin.ts                 secret-key client (server-only)
-scripts/                              import-synthea.ts, seed-appointments.ts, reset.ts, seed-users.ts, token.ts (+ lib/)
-supabase/migrations/                  schema, seeded clinics, clinic_members
-tests/unit/, tests/integration/, tests/conformance/
+scripts/                              import-synthea.ts, load-clinicsoft.ts, seed-appointments.ts, reset.ts, seed-users.ts, token.ts (+ lib/)
+supabase/migrations/                  schema, seeded clinics, clinic_members, clinicsoft
+tests/unit/, tests/golden/, tests/integration/, tests/conformance/
 ```
 
-### Adding a provider (phase 2 adapters)
+### Adding a provider
+
+For a non-FHIR EHR, you usually don't write a provider: you write a vendor
+definition (`vendors/<name>.yaml`) for the adapter. See
+[docs/adapter-guide.md](docs/adapter-guide.md). For a genuinely new kind of integration:
 
 1. Implement `EhrProvider` in `lib/fhir/providers/<name>.ts`. Declare honest
    `capabilities()`. Throw `FhirError` for failures.
@@ -255,8 +299,9 @@ tests/unit/, tests/integration/, tests/conformance/
 
 - Logs never contain resource contents or search values. The gateway logs
   clinic, interaction, type, id, param **names**, status and duration.
-  Next's own request logging is turned off for `/api/fhir/*` because search
-  URLs carry patient data.
+  Next's own request logging is turned off for `/api/fhir/*` and
+  `/api/mock-vendors/*` because search URLs carry patient data.
+- The only phone numbers and emails in the demo data are `DEMO_PHONE_NUMBERS` / `DEMO_EMAILS`.
 - Supabase (`ca-central-1`) and Vercel functions (`yul1`, Montréal; see
   `vercel.json`) keep data in Canada. `hapi-public` is a public US test server
   holding synthetic data only. Never connect it to real patient data.

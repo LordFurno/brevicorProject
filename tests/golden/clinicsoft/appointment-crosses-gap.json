@@ -1,0 +1,49 @@
+{
+  "note": "starts 01:45 EST, lasts 30 real minutes across the jump: ends 03:15 EDT",
+  "resourceType": "Appointment",
+  "vendor": {
+    "apptId": "a-cross",
+    "patientNo": "pat-100",
+    "providerNo": "doc-1",
+    "apptDate": "2026-03-08",
+    "startTime": "01:45",
+    "duration": 30,
+    "status": "B",
+    "type": "VIRT_VIDEO",
+    "reason": null
+  },
+  "expected": {
+    "resourceType": "Appointment",
+    "id": "a-cross",
+    "status": "booked",
+    "serviceType": [
+      {
+        "coding": [
+          {
+            "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality",
+            "code": "video",
+            "display": "Video consultation"
+          }
+        ],
+        "text": "Video consultation"
+      }
+    ],
+    "start": "2026-03-08T06:45:00Z",
+    "end": "2026-03-08T07:15:00Z",
+    "minutesDuration": 30,
+    "participant": [
+      {
+        "actor": {
+          "reference": "Patient/pat-100"
+        },
+        "status": "accepted"
+      },
+      {
+        "actor": {
+          "reference": "Practitioner/doc-1"
+        },
+        "status": "accepted"
+      }
+    ]
+  }
+}

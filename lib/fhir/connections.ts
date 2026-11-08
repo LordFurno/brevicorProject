@@ -46,7 +46,12 @@ function toConnection(row: ConnectionRow): EhrConnection {
 }
 
 function parseAuth(auth: unknown): ConnectionAuth {
-  const a = auth as { type?: unknown; tokenEnv?: unknown } | null;
-  if (a?.type === 'bearer' && typeof a.tokenEnv === 'string') return { type: 'bearer', tokenEnv: a.tokenEnv };
+  const a = (auth ?? {}) as Record<string, unknown>;
+  const str = (k: string) => (typeof a[k] === 'string' ? (a[k] as string) : undefined);
+  if (a.type === 'bearer' && str('tokenEnv')) return { type: 'bearer', tokenEnv: str('tokenEnv')! };
+  if (a.type === 'apiKey' && str('keyEnv')) return { type: 'apiKey', keyEnv: str('keyEnv')! };
+  if (a.type === 'oauth2_client_credentials' && str('clientIdEnv') && str('clientSecretEnv')) {
+    return { type: 'oauth2_client_credentials', clientIdEnv: str('clientIdEnv')!, clientSecretEnv: str('clientSecretEnv')! };
+  }
   return { type: 'none' };
 }

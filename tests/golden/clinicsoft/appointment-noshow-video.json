@@ -1,0 +1,54 @@
+{
+  "note": "N; summer time: 10:00 EDT = 14:00Z",
+  "resourceType": "Appointment",
+  "vendor": {
+    "apptId": "a-n",
+    "patientNo": "pat-100",
+    "providerNo": "doc-1",
+    "apptDate": "2026-07-15",
+    "startTime": "10:00",
+    "duration": 30,
+    "status": "N",
+    "type": "VIRT_VIDEO",
+    "reason": "New concern"
+  },
+  "expected": {
+    "resourceType": "Appointment",
+    "id": "a-n",
+    "status": "noshow",
+    "serviceType": [
+      {
+        "coding": [
+          {
+            "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality",
+            "code": "video",
+            "display": "Video consultation"
+          }
+        ],
+        "text": "Video consultation"
+      }
+    ],
+    "reasonCode": [
+      {
+        "text": "New concern"
+      }
+    ],
+    "start": "2026-07-15T14:00:00Z",
+    "end": "2026-07-15T14:30:00Z",
+    "minutesDuration": 30,
+    "participant": [
+      {
+        "actor": {
+          "reference": "Patient/pat-100"
+        },
+        "status": "accepted"
+      },
+      {
+        "actor": {
+          "reference": "Practitioner/doc-1"
+        },
+        "status": "accepted"
+      }
+    ]
+  }
+}

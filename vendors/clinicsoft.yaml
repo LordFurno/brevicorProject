@@ -1,0 +1,239 @@
+# ClinicSoft EMR (v2 REST API) -> FHIR R4.
+#
+# Everything the gateway knows about ClinicSoft is in this file: how to call
+# it, how its search parameters line up with FHIR's, and how each record maps
+# to a FHIR resource. A walkthrough is in docs/adapter-guide.md.
+#
+# Expressions in `map`, `results`, `total` and inside {braces} are JSONata
+# (https://docs.jsonata.org). Helpers: $localToUtc, $addMinutes, $lookup,
+# $reference, $date, $localDate, $lastLocalDate, and $config.
+
+vendor: clinicsoft
+name: ClinicSoft
+timezone: America/Toronto        # ClinicSoft stores local dates/times without offsets
+
+auth:
+  type: apiKey
+  header: X-API-Key              # the key itself comes from the clinic connection (env var)
+
+paging:
+  pageParam: page
+  sizeParam: pageSize
+  maxPageSize: 100
+
+# Per-clinic values; a clinic's ehr_connections.adapter_config.config overrides them.
+config:
+  chartNoSystem: https://clinicsoft.example/fhir/sid/chart-no
+  providerLicenceSystem: https://clinicsoft.example/fhir/sid/cpso
+  orgLicenceSystem: https://clinicsoft.example/fhir/sid/org-licence
+
+codes:
+  sex: { M: male, F: female, U: unknown }
+  appointmentStatus: { B: booked, C: cancelled, N: noshow, A: arrived }
+  visitMode: { VIRT_VIDEO: video, VIRT_PHONE: telephone }
+  visitModeDisplay: { VIRT_VIDEO: Video consultation, VIRT_PHONE: Telephone consultation }
+  encounterStatus: { OPEN: in-progress, CLOSED: finished, VOID: cancelled }
+  encounterClass:                # ClinicSoft class -> HL7 v3 ActCode
+    ambulatory: AMB
+    wellness: AMB
+    outpatient: AMB
+    urgentcare: AMB
+    emergency: EMER
+    inpatient: IMP
+    snf: IMP
+    home: HH
+    hospice: HH
+    virtual: VR
+
+resources:
+  Patient:
+    read: { path: "/patients/{id}", result: patient }
+    search:
+      path: /patients
+      results: patients
+      total: totalCount
+      params:
+        _id: { type: id }
+        family: { type: string, multiple: true }     # ClinicSoft: case/accent-insensitive "starts with", comma = any of
+        given: { type: string }
+        birthdate: { type: date, prefixes: [eq, ge, gt, le, lt], precision: day }
+        identifier: { type: token, system: "{$config.chartNoSystem}" }
+      query:
+        lastName: "{$join(family.values, ',')}"
+        firstName: "{given.value}"
+        dobFrom: "{$localDate(birthdate.start, 'DD/MM/YYYY')}"
+        dobTo: "{$lastLocalDate(birthdate.end, 'DD/MM/YYYY')}"
+        chartNo: "{identifier.value}"
+    map: |
+      {
+        "resourceType": "Patient",
+        "id": patientNo,
+        "identifier": [chartNo ? {
+          "type": {
+            "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MR", "display": "Medical Record Number" }],
+            "text": "Medical Record Number"
+          },
+          "system": $config.chartNoSystem,
+          "value": chartNo
+        }],
+        "name": [{
+          "use": "official",
+          "family": lastName,
+          "given": [firstName, middleName],
+          "prefix": [title],
+          "suffix": [suffix]
+        }],
+        "telecom": [
+          cellPhone ? { "system": "phone", "value": cellPhone, "use": "mobile" },
+          homePhone ? { "system": "phone", "value": homePhone, "use": "home" },
+          email ? { "system": "email", "value": email }
+        ],
+        "gender": $lookup('sex', sex),
+        "birthDate": $date(dob, 'DD/MM/YYYY'),
+        "deceasedDateTime": $date(deceasedDate, 'DD/MM/YYYY'),
+        "address": [{ "line": [address1], "city": city, "state": province, "postalCode": postalCode }]
+      }
+
+  Practitioner:
+    read: { path: "/providers/{id}", result: provider }
+    search:
+      path: /providers
+      results: providers
+      total: totalCount
+      params:
+        _id: { type: id }
+        family: { type: string }
+        identifier: { type: token, system: "{$config.providerLicenceSystem}" }
+      query:
+        lastName: "{family.value}"
+        cpsoNo: "{identifier.value}"
+    map: |
+      {
+        "resourceType": "Practitioner",
+        "id": providerNo,
+        "identifier": [cpsoNo ? { "system": $config.providerLicenceSystem, "value": cpsoNo }],
+        "name": [{ "family": lastName, "given": [firstName], "prefix": [title] }],
+        "gender": $lookup('sex', sex)
+      }
+
+  Organization:
+    read: { path: "/organizations/{id}", result: organization }
+    map: |
+      {
+        "resourceType": "Organization",
+        "id": orgId,
+        "identifier": [licenceNo ? { "system": $config.orgLicenceSystem, "value": licenceNo }],
+        "name": orgName,
+        "telecom": [phone ? { "system": "phone", "value": phone, "use": "work" }],
+        "address": [{ "line": [address1], "city": city, "state": province, "postalCode": postalCode }]
+      }
+
+  Appointment:
+    read: { path: "/schedule/{id}", result: appointment }
+    search:
+      path: /schedule
+      results: appointments
+      total: totalCount
+      params:
+        _id: { type: id }
+        patient: { type: reference, target: Patient }
+        practitioner: { type: reference, target: Practitioner }
+        actor:                                        # lands in the same slots, so actor + practitioner must agree
+          type: reference
+          target: [Patient, Practitioner]
+          as: { Patient: patient, Practitioner: practitioner }
+        date: { type: date, prefixes: [eq, ge, gt, le, lt], precision: day }   # ClinicSoft filters by local day
+        status: { type: token, codes: appointmentStatus, multiple: true }
+      query:
+        patientNo: "{patient.id}"
+        providerNo: "{practitioner.id}"
+        from: "{$localDate(date.start)}"
+        to: "{$lastLocalDate(date.end)}"
+        status: "{$join(status.values, ',')}"
+    map: |
+      (
+        $start := $localToUtc(apptDate, startTime);
+        {
+          "resourceType": "Appointment",
+          "id": apptId,
+          "status": $lookup('appointmentStatus', status),
+          "serviceType": [{
+            "coding": [{
+              "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality",
+              "code": $lookup('visitMode', type),
+              "display": $lookup('visitModeDisplay', type)
+            }],
+            "text": $lookup('visitModeDisplay', type)
+          }],
+          "reasonCode": [reason ? { "text": reason }],
+          "start": $start,
+          "end": $addMinutes($start, duration),
+          "minutesDuration": duration,
+          "participant": [
+            patientNo ? { "actor": $reference('Patient', patientNo), "status": "accepted" },
+            providerNo ? { "actor": $reference('Practitioner', providerNo), "status": "accepted" }
+          ]
+        }
+      )
+
+  Encounter:
+    read: { path: "/encounters/{id}", result: encounter }
+    search:
+      path: /encounters
+      results: encounters
+      total: totalCount
+      params:
+        _id: { type: id }
+        patient: { type: reference, target: Patient }
+        subject: { type: reference, target: Patient, as: { Patient: patient } }
+        appointment: { type: reference, target: Appointment }
+        # ClinicSoft can only filter by the day an encounter *starts* (FHIR's
+        # Encounter date covers the whole period); see docs/adapter-guide.md.
+        date: { type: date, prefixes: [eq, ge, gt, le, lt], precision: day }
+      query:
+        patientNo: "{patient.id}"
+        apptId: "{appointment.id}"
+        from: "{$localDate(date.start)}"
+        to: "{$lastLocalDate(date.end)}"
+    map: |
+      {
+        "resourceType": "Encounter",
+        "id": encounterNo,
+        "status": $lookup('encounterStatus', encStatus),
+        "class": { "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": $lookup('encounterClass', encClass) },
+        "type": [encTypeCode ? {
+          "coding": [{ "system": "http://snomed.info/sct", "code": encTypeCode, "display": encTypeDesc }],
+          "text": encTypeDesc
+        }],
+        "subject": $reference('Patient', patientNo),
+        "participant": [providerNo ? { "individual": $reference('Practitioner', providerNo) }],
+        "appointment": [$reference('Appointment', apptId)],
+        "period": { "start": $localToUtc(startDateTime), "end": $localToUtc(endDateTime) },
+        "serviceProvider": $reference('Organization', orgId)
+      }
+
+  DocumentReference:
+    read: { path: "/documents/{id}", result: document }
+    search:
+      path: /documents
+      results: documents
+      total: totalCount
+      params:
+        _id: { type: id }
+        patient: { type: reference, target: Patient }
+        subject: { type: reference, target: Patient, as: { Patient: patient } }
+        encounter: { type: reference, target: Encounter }
+      query:
+        patientNo: "{patient.id}"
+        encounterNo: "{encounter.id}"
+    map: |
+      {
+        "resourceType": "DocumentReference",
+        "id": docId,
+        "status": "current",
+        "type": docType ? { "text": docType },
+        "subject": $reference('Patient', patientNo),
+        "date": $localToUtc(createdAt),
+        "content": [{ "attachment": { "contentType": mimeType, "data": body } }],
+        "context": encounterNo ? { "encounter": [$reference('Encounter', encounterNo)] }
+      }

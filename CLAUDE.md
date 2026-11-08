@@ -78,6 +78,11 @@ sections 2.1 and 4H. Contract with the app: `docs/fhir-contract.md`.
 - Unsupported operations return an `OperationOutcome`. Never silently drop
   a write. If an EHR can't store a document, use a Brevicor docstore (not
   built yet) and record sync status and where the authoritative copy lives.
+- Non-FHIR EHRs are described by a vendor definition (`vendors/<name>.yaml`:
+  request templates + JSONata maps) run by the adapter engine in
+  `lib/fhir/providers/adapter/`. Add vendors with YAML, not code. A vendor
+  can't express a search → 400, never a silently wider query. Mapping failures
+  → 502 naming vendor + type, never values. See `docs/adapter-guide.md`.
 - Mock search uses columns derived from each resource (`refs`, `tokens`,
   `strings`, `date_lo/hi`), and `lib/fhir/providers/mock-index.ts` owns both
   sides of that mapping. Write rows only via `toRow()`.
@@ -94,9 +99,11 @@ sections 2.1 and 4H. Contract with the app: `docs/fhir-contract.md`.
 
 ## Layout
 app/api/fhir/R4/[...path]/route.ts, lib/fhir/{gateway,auth,dispatch,provider,search,validate,bundle,
-capability-statement,outcome,log,connections}.ts, lib/fhir/providers/{index,mock,mock-index,native}.ts,
-lib/supabase/admin.ts, scripts/{import-synthea,seed-appointments,reset,seed-users,token}.ts (+ scripts/lib/),
-supabase/migrations/, tests/{unit,integration,conformance}/
+capability-statement,outcome,log,connections}.ts, lib/fhir/providers/{index,mock,mock-index,native,http}.ts,
+lib/fhir/providers/adapter/, vendors/*.yaml, lib/vendors/clinicsoft/ (fake EMR API,
+app/api/mock-vendors/clinicsoft/v2/), lib/supabase/admin.ts,
+scripts/{import-synthea,load-clinicsoft,seed-appointments,reset,seed-users,token}.ts (+ scripts/lib/),
+supabase/migrations/, tests/{unit,golden,integration,conformance}/
 
 ## Commands
 - Dev: `npm run dev`
@@ -104,5 +111,7 @@ supabase/migrations/, tests/{unit,integration,conformance}/
 - Test (conformance vs mock): `npm run test:conformance`
 - Test (conformance vs HAPI): `docker run -d -p 8080:8080 hapiproject/hapi:latest`, then
   `HAPI_FHIR_URL=http://localhost:8080/fhir npm run test:conformance`
-- Seed / reset mock data: `npm run fhir:seed -- demo-mock` / `npm run fhir:reset -- demo-mock`
+- Seed / reset demo data: `npm run fhir:seed -- demo-mock` / `npm run fhir:reset -- demo-mock`
+  (both also write the same appointment plan to ClinicSoft practice `demo`;
+  `npm run clinicsoft:load` reloads ClinicSoft from Synthea CSV)
 - Demo logins: `npm run fhir:users`, then `TOKEN=$(npm run -s fhir:token -- physician.one@demo.brevicor.test)`

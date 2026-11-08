@@ -1,4 +1,4 @@
-import type { Bundle, Encounter, FhirResource, Identifier } from 'fhir/r4';
+import type { Bundle, Encounter, FhirResource, Identifier, Patient } from 'fhir/r4';
 import { validateResource } from '@/lib/fhir/validate';
 
 /**
@@ -75,7 +75,8 @@ export function transformPatientBundle(
     const ref = `${r.resourceType}/${r.id}`;
     if (entry.fullUrl) byFullUrl.set(entry.fullUrl, ref);
     byFullUrl.set(`urn:uuid:${r.id}`, ref);
-    if (KEPT_TYPES.has(r.resourceType)) kept.push(r);
+    if (r.resourceType === 'Patient') kept.push(withoutContacts(r));
+    else if (KEPT_TYPES.has(r.resourceType)) kept.push(r);
   }
 
   // Keep only the most recent encounters per patient.
@@ -169,6 +170,17 @@ function rewriteOne(
   delete ref.reference;
   if (identifier && ref.identifier === undefined) ref.identifier = identifier;
   if (typeof ref.display !== 'string') ref.display = `${typeName ?? 'Resource'} (not imported)`;
+}
+
+/**
+ * Synthea phone numbers (and any emails) are random and may belong to real
+ * people, so patients are imported without them; the seed assigns
+ * DEMO_PHONE_NUMBERS / DEMO_EMAILS instead.
+ */
+function withoutContacts(patient: Patient): Patient {
+  const telecom = (patient.telecom ?? []).filter((t) => t.system !== 'phone' && t.system !== 'email');
+  const { telecom: _all, ...rest } = patient;
+  return telecom.length > 0 ? { ...rest, telecom } : rest;
 }
 
 function identifiersOf(r: FhirResource): Identifier[] {

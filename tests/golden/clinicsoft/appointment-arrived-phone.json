@@ -1,0 +1,54 @@
+{
+  "note": "A + VIRT_PHONE",
+  "resourceType": "Appointment",
+  "vendor": {
+    "apptId": "a-a",
+    "patientNo": "pat-100",
+    "providerNo": "doc-1",
+    "apptDate": "2026-11-18",
+    "startTime": "16:45",
+    "duration": 15,
+    "status": "A",
+    "type": "VIRT_PHONE",
+    "reason": "Test results review"
+  },
+  "expected": {
+    "resourceType": "Appointment",
+    "id": "a-a",
+    "status": "arrived",
+    "serviceType": [
+      {
+        "coding": [
+          {
+            "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality",
+            "code": "telephone",
+            "display": "Telephone consultation"
+          }
+        ],
+        "text": "Telephone consultation"
+      }
+    ],
+    "reasonCode": [
+      {
+        "text": "Test results review"
+      }
+    ],
+    "start": "2026-11-18T21:45:00Z",
+    "end": "2026-11-18T22:00:00Z",
+    "minutesDuration": 15,
+    "participant": [
+      {
+        "actor": {
+          "reference": "Patient/pat-100"
+        },
+        "status": "accepted"
+      },
+      {
+        "actor": {
+          "reference": "Practitioner/doc-1"
+        },
+        "status": "accepted"
+      }
+    ]
+  }
+}

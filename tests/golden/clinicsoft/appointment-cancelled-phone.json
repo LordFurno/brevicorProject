@@ -1,0 +1,49 @@
+{
+  "note": "C + VIRT_PHONE; no reason -> no reasonCode",
+  "resourceType": "Appointment",
+  "vendor": {
+    "apptId": "a-c",
+    "patientNo": "pat-100",
+    "providerNo": "doc-1",
+    "apptDate": "2026-11-18",
+    "startTime": "13:00",
+    "duration": 20,
+    "status": "C",
+    "type": "VIRT_PHONE",
+    "reason": null
+  },
+  "expected": {
+    "resourceType": "Appointment",
+    "id": "a-c",
+    "status": "cancelled",
+    "serviceType": [
+      {
+        "coding": [
+          {
+            "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality",
+            "code": "telephone",
+            "display": "Telephone consultation"
+          }
+        ],
+        "text": "Telephone consultation"
+      }
+    ],
+    "start": "2026-11-18T18:00:00Z",
+    "end": "2026-11-18T18:20:00Z",
+    "minutesDuration": 20,
+    "participant": [
+      {
+        "actor": {
+          "reference": "Patient/pat-100"
+        },
+        "status": "accepted"
+      },
+      {
+        "actor": {
+          "reference": "Practitioner/doc-1"
+        },
+        "status": "accepted"
+      }
+    ]
+  }
+}

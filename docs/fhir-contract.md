@@ -31,7 +31,8 @@ Everything here is enforced by `tests/conformance/provider-contract.ts`.
 | DocumentReference | read, search | create |
 
 The mock clinic (`demo-mock`) supports exactly the writes in the right-hand
-column. `hapi-public` is read-only.
+column. `hapi-public` and `demo-clinicsoft` (a non-FHIR EMR behind the adapter)
+are read-only. At `demo-clinicsoft`, Organization supports read but not search.
 
 URLs: `GET /{type}/{id}`, `GET /{type}?…`, `POST /{type}`, `PUT /{type}/{id}`.
 Anything else (DELETE, PATCH, `_history`, `$operations`, batch) returns 501.
@@ -65,6 +66,16 @@ Semantics (R4):
   `link[relation=next]` to page. It uses `_offset`.
 - An unknown parameter or modifier returns **400**. Unsupported date prefixes
   (`ne`, `sa`, `eb`, `ap`) return 400.
+- **A clinic whose EHR can't express a search returns 400, never a silently
+  wider result.** For example, at `demo-clinicsoft`:
+  - dates filter by whole days only (`date=ge2026-11-07T10:00` → 400)
+  - `_offset` must be a multiple of `_count`
+  - `given` takes one value
+  - `actor` needs a type (`actor=Practitioner/123`)
+
+  The gateway's own `next` links always work.
+- At `demo-clinicsoft`, Encounter `date` filters by the day the encounter
+  starts. This is the same for same-day visits.
 
 Results come back as a `searchset` Bundle with gateway `fullUrl`s and
 `search.mode = match`. `total` is present when the EHR provides it.
@@ -77,9 +88,19 @@ Results come back as a `searchset` Bundle with gateway `fullUrl`s and
 { "system": "https://brevicor.ca/fhir/CodeSystem/consultation-modality", "code": "video" }      // or "telephone"
 ```
 
-`appointmentType` uses the standard v2-0276 codes (`ROUTINE`, `FOLLOWUP`).
-Cancelled appointments have `status: "cancelled"` and `cancelationReason`
-(R4 spelling).
+This is the field to key on: every clinic sets it, including the adapter clinic.
+`appointmentType` (v2-0276 `ROUTINE`/`FOLLOWUP`), `cancelationReason`
+(R4 spelling) and `created` are present only where the EHR records them
+(demo-mock does; ClinicSoft doesn't). The visit reason, where known, is in
+`reasonCode[0].text`.
+
+## Patient phone numbers and emails
+
+In demo data, the only contacts are `DEMO_PHONE_NUMBERS`
+(`telecom.system = phone`, `use = mobile`) and `DEMO_EMAILS`
+(`telecom.system = email`), assigned to the first patients with appointments
+today. Every clinic, including the adapter clinic, holds the same ones. Other
+patients have none. Don't fall back to anything else.
 
 ## Writes and versioning
 
